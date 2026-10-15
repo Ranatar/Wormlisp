@@ -72,6 +72,7 @@ src/package.lisp    фасадный пакет WORM и пакет WORM-USER
 tests/              FiveAM; tests/structure.lisp сверяет слои с архитектурой
 scripts/            init.lisp, repl.sh, run-tests.lisp, build-image.lisp
 vendor/             библиотеки с закреплёнными коммитами
+tools/firefox/      Firefox 115 для Linux частями; tools/firefox/install.sh
 anatomy/ params/ configs/ sweeps/ viewer/ bench/   заполняются на своих этапах
 ```
 
