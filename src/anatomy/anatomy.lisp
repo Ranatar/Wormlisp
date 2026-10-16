@@ -24,8 +24,7 @@
   (muscles #() :type simple-vector :read-only t)
   (layout nil :read-only t)
   (path nil :read-only t)
-  (neurons nil :read-only t)  ; Этап 12.
-  (synapses nil :read-only t))  ; Этап 12.
+  (connectome nil :read-only t))  ; нейроны и синапсы (этап 12) или NIL
 
 (defmethod print-object ((a anatomy) stream)
   (print-unreadable-object (a stream :type t)
@@ -150,8 +149,9 @@
       (invalid "мышц ~D, а должно быть 95" (length muscles)))
     muscles))
 
-(defun load-anatomy (&key (muscles-path (default-muscles-path)))
-  "Загрузить анатомию. Нейроны и синапсы появятся на этапе 12.
+(defun load-anatomy (&key (muscles-path (default-muscles-path)) neurons-path synapses-path)
+  "Загрузить анатомию: мышцы и, если рядом с файлом мышц есть neurons.sexp и
+synapses.sexp (или они заданы), нейроны и синапсы третьего уровня.
 Перезапуски: RELOAD-ANATOMY — перечитать файл после правки, USE-VALUE — подставить анатомию."
   (loop
     (restart-case
@@ -159,7 +159,15 @@
           (validate-muscles muscles)
           (log-event :info 'anatomy "загружено ~D мышц из ~A" (length muscles)
                      (file-namestring muscles-path))
-          (return (make-anatomy :muscles muscles :layout layout :path muscles-path)))
+          (let* ((neurons-path (or neurons-path (merge-pathnames "neurons.sexp" muscles-path)))
+                 (synapses-path (or synapses-path (merge-pathnames "synapses.sexp" muscles-path)))
+                 (connectome (and (probe-file neurons-path) (probe-file synapses-path)
+                                  (read-connectome neurons-path synapses-path muscles))))
+            (when connectome
+              (log-event :info 'anatomy "загружено ~D нейронов, ~D синапсов, ~D щелевых и ~D нервно-мышечных контактов"
+                         (length (connectome-neurons connectome)) (length (connectome-chemical connectome))
+                         (length (connectome-gap connectome)) (length (connectome-nmj connectome))))
+            (return (make-anatomy :muscles muscles :layout layout :path muscles-path :connectome connectome))))
       (reload-anatomy ()
         :report "Перечитать файл анатомии."
         nil)

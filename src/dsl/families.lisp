@@ -17,7 +17,16 @@
 ;;;;   :muscle        без слотов; position (максимум веретена), side (+1 —
 ;;;;                  дорсальная, −1 — вентральная)
 ;;;;   :global        один элемент без слотов
-;;;;   :prop-unit, :neuron — семейства уровней управления 2 и 3 (этапы 10, 12)
+;;;;   :prop-unit     проприоцептивные единицы уровня 2 (этап 10): position, index
+;;;;   :neuron        нейроны коннектома уровня 3 (этап 12): position (середина
+;;;;                  иннервируемых мышц, у интернейронов — 0,5), side (+1 —
+;;;;                  дорсальные мотонейроны DA, DB, DD, AS; −1 — вентральные VA,
+;;;;                  VB, VD, VC; 0 — прочие), gaba (1 — ГАМК-ергический),
+;;;;                  proprioceptive (1 — B-нейроны DB и VB), command (+1 — AVB,
+;;;;                  −1 — AVA: команда вперёд возбуждает одного и тормозит другого),
+;;;;                  cord (1 — мотонейроны вентрального тяжа и хвоста: AS, DA,
+;;;;                  DB, DD, VA, VB, VC, VD, PDA, PDB), gap-total (сумма
+;;;;                  щелевых контактов нейрона)
 ;;;;
 ;;;; Отношение :via связывает выход экземпляра одного семейства со входом
 ;;;; экземпляра другого и задаёт, как значения переходят между элементами.
@@ -45,6 +54,7 @@
         ((eq family :node) '(ds position tangent))
         ((eq family :muscle) '(position side))
         ((eq family :prop-unit) '(position index))
+        ((eq family :neuron) '(position side gaba proprioceptive command cord gap-total))
         (t '())))
 
 (defun family-slots (family ring-nodes)
@@ -73,11 +83,18 @@
 ;;;   :broadcast        :global → любое семейство: одно значение всем
 ;;;   :innervation      единица управления → мышцы её участка тела, вес —
 ;;;                     сторона мышцы (+1 дорсальная, −1 вентральная); нейрон →
-;;;                     мышца — этап 12
+;;;                     мышца — по нервно-мышечным синапсам коннектома, вес —
+;;;                     число контактов, делённое на сумму возбуждающих
+;;;                     контактов мотонейронов тяжа на эту мышцу
+;;;   :chemical         нейрон → нейрон по химическим синапсам, вес — число
+;;;                     контактов (пре → пост)
+;;;   :gap              нейрон ↔ нейрон по щелевым контактам, вес — число
+;;;                     контактов, в обе стороны
 ;;;   :receptive-field  продольные рёбра рецептивного поля → единица, вес
 ;;;                     ±N_SR / (рёбер одной стороны в поле): сумма по полю,
 ;;;                     нормированная на его длину; минус — у поля вперёд
-;;;                     (параметры, «Уровень 2»)
+;;;                     (параметры, «Уровень 2»); для нейронов — то же поле назад
+;;;                     от положения B-нейрона, у остальных нейронов поля нет
 
 (defstruct (relation (:copier nil))
   name pairs documentation)
@@ -91,8 +108,12 @@
                        :documentation "одно значение глобального элемента всем элементам")
         (make-relation :name :innervation :pairs '((:prop-unit . :muscle) (:neuron . :muscle))
                        :documentation "управление → мышца (этапы 10 и 12)")
-        (make-relation :name :receptive-field :pairs '((:long-edge . :prop-unit))
-                       :documentation "продольные рёбра рецептивного поля → проприоцептивная единица (этап 10)")))
+        (make-relation :name :receptive-field :pairs '((:long-edge . :prop-unit) (:long-edge . :neuron))
+                       :documentation "продольные рёбра рецептивного поля → проприоцептивная единица или B-нейрон")
+        (make-relation :name :chemical :pairs '((:neuron . :neuron))
+                       :documentation "химические синапсы коннектома, пре → пост (этап 12)")
+        (make-relation :name :gap :pairs '((:neuron . :neuron))
+                       :documentation "щелевые контакты коннектома, в обе стороны (этап 12)")))
 
 (defun find-relation (name)
   (find name +relations+ :key #'relation-name))

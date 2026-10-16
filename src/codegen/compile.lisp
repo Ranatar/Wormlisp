@@ -16,7 +16,7 @@
 
 (in-package #:worm.codegen)
 
-(defparameter +codegen-version+ 5)
+(defparameter +codegen-version+ 6)
 
 (defvar *units* nil "Единицы собираемой модели — для сведения входов.")
 (defvar *relations* nil "Связи собираемой модели: ((провод . csr) …).")
@@ -279,14 +279,25 @@ SCRATCH и FORCE-HESSIAN — готовый рабочий массив и об�
                       when (eq (first src) :obs)
                         collect (aggregation u port (list 'obs (second src)))))))
 
+(defun self-wired-p (u)
+  "Связан ли экземпляр U сам с собой (нейроны коннектома)."
+  (loop for (w) in *relations*
+        thereis (and (eq (worm.dsl::wire-src-instance w) (unit-name u))
+                     (eq (worm.dsl::wire-dst-instance w) (unit-name u)))))
+
 (defun neural-pass (neural param-names derivs-writer &key (ports-fn (lambda (u) (wired-ports u :neural))))
   "Проход по нервно-мышечной части: сведение входов, выходы в буферы и,
-если задан DERIVS-WRITER, производные."
+если задан DERIVS-WRITER, производные. Экземпляр, связанный сам с собой,
+сначала пишет выходы — они зависят только от состояния, — и лишь потом
+сводит входы."
   (loop for u in neural
         for pairs = (output-roots u (funcall ports-fn u))
         for derivs = (and derivs-writer (worm.dsl::kernel-derivs (kernel-of u)))
         when (or pairs derivs)
-          append (append (internal-aggregations u)
+          append (append (when (and pairs (self-wired-p u))
+                           (list (element-loop u (mapcar #'cdr pairs) param-names
+                                               (lambda (forms) (write-outputs u pairs forms)))))
+                         (internal-aggregations u)
                          (list (element-loop u (append (mapcar #'cdr pairs) (mapcar #'cdr derivs)) param-names
                                              (lambda (forms)
                                                (append (write-outputs u pairs (subseq forms 0 (length pairs)))

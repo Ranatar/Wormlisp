@@ -7,6 +7,7 @@
 ;;;;     :params "agar-a-v1"           ; набор параметров: имя или путь
 ;;;;     :medium nil :rings nil        ; необязательно
 ;;;;     :dt 1d-3 :duration 10         ; шаг и длительность, с
+;;;;     :neural-every 10              ; R — пересборка нервной матрицы, шагов
 ;;;;     :set ((sr-scale 1.4) (tau-ca 120 :ms))   ; правки, единицы реестра
 ;;;;     :record (:frames-every 0.01)  ; запись кадров
 ;;;;     :metrics-from 4               ; метрики походки с этого момента, с
@@ -67,7 +68,7 @@
   (let ((form (read-form (project-path path))))
     (unless (and (consp form) (string= (symbol-name (first form)) "CONFIG"))
       (batch-error "~A: ожидалась форма (config <имя> …)" path))
-    (destructuring-bind (&key model (params "water-v1") medium rings (dt 1d-3) (duration 1) set
+    (destructuring-bind (&key model (params "water-v1") medium rings (dt 1d-3) (neural-every 10) (duration 1) set
                            (record '(:frames-every 0.01d0)) (metrics-from 0) (timeout 3600))
         (cddr form)
       (unless model (batch-error "~A: нет :model" path))
@@ -75,25 +76,25 @@
             :model (string-upcase (string model))
             :params (if (pathnamep params) (namestring params) params)
             :medium (and medium (kw medium)) :rings rings
-            :dt (float dt 0d0) :duration (float duration 0d0)
+            :dt (float dt 0d0) :neural-every neural-every :duration (float duration 0d0)
             :set (normalize-set set) :record record
             :metrics-from (float metrics-from 0d0) :timeout timeout))))
 
 ;;; Развёртка
 
 (defstruct (sweep (:copier nil))
-  name base vary design duration timeout workers path)
+  name base vary design duration timeout workers neural-every path)
 
 (defun load-sweep (path)
   (let ((form (read-form (project-path path))))
     (unless (and (consp form) (string= (symbol-name (first form)) "SWEEP"))
       (batch-error "~A: ожидалась форма (sweep <имя> …)" path))
-    (destructuring-bind (&key base vary (design :grid) duration timeout (workers :auto)) (cddr form)
+    (destructuring-bind (&key base vary (design :grid) duration timeout (workers :auto) neural-every) (cddr form)
       (unless base (batch-error "~A: нет :base" path))
       (make-sweep :name (string-downcase (string (second form)))
                   :base (load-config base)
                   :vary (mapcar #'parse-vary vary)
-                  :design design :duration duration :timeout timeout :workers workers
+                  :design design :duration duration :timeout timeout :workers workers :neural-every neural-every
                   :path (project-path path)))))
 
 (defun parse-vary (entry)
@@ -166,22 +167,37 @@
                (v (worm.params:param-value set name)))
           (if unit (worm.params:from-internal v unit) (float v 0d0))))))
 
+(defparameter +numeric-keys+ '(:dt :neural-every)
+  "Изменения развёртки с этими именами меняют не параметр модели, а шаг h
+или R задания (сходимость по шагу).")
+
 (defun resolve-point (sweep point)
   "Правки :set задания для точки POINT развёртки."
   (let ((set (copy-tree (getf (sweep-base sweep) :set))))
     (loop for (name value) in point
           for v = (find name (sweep-vary sweep) :key (lambda (x) (getf x :name)))
+          unless (member name +numeric-keys+)
           do (dolist (param (getf v :params))
                (let ((new (if (getf v :multiply) (* value (base-value (sweep-base sweep) param)) value)))
                  (setf set (cons (list param new nil) (remove param set :key #'first))))))
     (sort set #'string< :key (lambda (e) (symbol-name (first e))))))
 
+(defun model-identity (name)
+  "Хэш модели и версия кодогенератора: другая модель или другой код шага —
+другой прогон, даже при той же конфигурации."
+  (let ((symbol (find-symbol name :worm.components)))
+    (list (and symbol (worm.dsl:model-spec-hash (worm.dsl:find-model symbol)))
+          worm.codegen:+codegen-version+)))
+
 (defun canonical-text (job)
   "Текст задания без имени развёртки и идентификатора: от него берётся хэш."
   (with-standard-io-syntax
     (let ((*print-readably* nil) (*print-case* :downcase))
-      (prin1-to-string (loop for key in '(:model :params :medium :rings :dt :duration :set :record :metrics-from)
-                             collect key collect (getf job key))))))
+      (prin1-to-string (append (loop for key in '(:model :params :medium :rings :dt :duration :set :record :metrics-from)
+                                     collect key collect (getf job key))
+                               ;; R по умолчанию в текст не входит: задания до этапа 12 сохраняют идентификаторы
+                               (let ((r (getf job :neural-every 10))) (unless (eql r 10) (list :neural-every r)))
+                               (list :code (model-identity (getf job :model))))))))
 
 (defun job-id (job)
   (subseq (worm.platform:md5-hex (canonical-text job)) 0 16))
@@ -190,10 +206,15 @@
   "Задания развёртки: список plist с :id."
   (let ((base (sweep-base sweep)))
     (loop for point in (design-points sweep)
-          collect (let ((job (list :sweep (sweep-name sweep)
+          collect (let* ((numeric (lambda (key default)
+                                    (let ((p (assoc key point)))
+                                      (if p (if (eq key :neural-every) (round (second p)) (second p)) default))))
+                         (job (list :sweep (sweep-name sweep)
                                    :model (getf base :model) :params (getf base :params)
                                    :medium (getf base :medium) :rings (getf base :rings)
-                                   :dt (getf base :dt)
+                                   :dt (funcall numeric :dt (getf base :dt))
+                                   :neural-every (funcall numeric :neural-every
+                                                          (or (sweep-neural-every sweep) (getf base :neural-every 10)))
                                    :duration (float (or (sweep-duration sweep) (getf base :duration)) 0d0)
                                    :set (resolve-point sweep point)
                                    :record (getf base :record)

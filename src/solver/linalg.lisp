@@ -117,12 +117,18 @@ IPIV получает перестановки. Возвращает NIL при 
           (dotimes (c n) (rotatef (aref a j c) (aref a p c))))
         (if (zerop (aref a j j))
             (unless info (setf info j))
-            (let ((inv (/ 1d0 (aref a j j))))
+            (let ((inv (/ 1d0 (aref a j j)))
+                  ;; столбцы правее последнего ненулевого в строке j не меняются:
+                  ;; у нервно-мышечной части хвост строк нейронов — нули мышц
+                  (last (loop for c of-type (unsigned-byte 31) from (1- n) downto (1+ j)
+                              unless (zerop (aref a j c)) return (1+ c)
+                              finally (return (1+ j)))))
+              (declare (type (unsigned-byte 31) last))
               (loop for i of-type (unsigned-byte 31) from (1+ j) below n
                     do (let ((m (* (aref a i j) inv)))
                          (setf (aref a i j) m)
                          (unless (zerop m)
-                           (loop for c of-type (unsigned-byte 31) from (1+ j) below n
+                           (loop for c of-type (unsigned-byte 31) from (1+ j) below last
                                  do (decf (aref a i c) (* m (aref a j c)))))))))))
     info))
 

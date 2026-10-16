@@ -156,3 +156,44 @@ I_act·σ(k_act(V − V_act)) (бистабильность), щелевым к�
 множителем гибкости нервно-мышечного синапса (общая часть обеих сторон отброшена, как у бинарной версии).
 VB начинает в верхнем состоянии, как в бинарной версии: в прямом теле сигнала рецептора нет, а VD
 в покое тормозит VB вполсилы (V₀,GABA = V_rest), и без начального толчка обе стороны остаются в покое.")
+
+;;; Уровень 3: коннектом (Kunert et al. 2014, этап 12)
+
+(define-component graded-neuron
+  :family :neuron
+  :params (neuron-c neuron-g-leak neuron-e-leak contact-g e-exc e-inh syn-rise syn-decay syn-beta
+           command-current neuron-sr-conductance neuron-nmj-gain nmj-inhibition-scale nmj-head-scale sr-filter
+           (neuron-threshold :per-element))
+  :state ((v neuron-e-leak) (s 0) (sense 0))
+  :inputs ((gap-in (link :gap))
+           (exc-in (link :exc))
+           (inh-in (link :inh))
+           (bend (link :stretch) :default 0))
+  :let ((i-gap (* contact-g (- gap-in (* gap-total v))))
+        (i-syn (- (+ (* contact-g exc-in (- v e-exc)) (* contact-g inh-in (- v e-inh)))))
+        (i-leak (* neuron-g-leak (- neuron-e-leak v)))
+        ;; растяжение своей стороны открывает возбуждающий канал, сжатие —
+        ;; тормозящий: ток ограничен потенциалами реверсии
+        (x (* proprioceptive side sense))
+        (i-sr (* neuron-sr-conductance (+ (* (positive x) (- e-exc v)) (* (positive (- x)) (- e-inh v)))))
+        (phi (logistic (* syn-beta (- v neuron-threshold)))))
+  :derivs ((v (/ (+ i-leak i-gap i-syn i-sr (* command command-current)) neuron-c))
+           (s (- (* syn-rise phi (- 1 s)) (* syn-decay s)))
+           (sense (/ (- bend sense) sr-filter)))
+  :outputs ((potential v)
+            (s-exc (* s (- 1 gaba)))
+            (s-inh (* s gaba))
+            (motor (* neuron-nmj-gain (+ cord (* (- 1 cord) nmj-head-scale))
+                      (/ s (/ syn-rise (+ syn-rise syn-decay)))
+                      (- (- 1 gaba) (* nmj-inhibition-scale gaba)))))
+  :documentation "Градуальный нейрон коннектома (Kunert et al. 2014): C·dV/dt = −G_c(V − E_c)
+− g·Σ gap_ij(V_i − V_j) − g·Σ c_ij s_j(V_i − E_j) + I; синапс ds/dt = a_r·φ(V)(1 − s) − a_d·s,
+φ = σ(β(V − V_th)), V_th — потенциал покоя сети при φ = 1/2. Возбуждающие и тормозные (ГАМК)
+синапсы сводятся отдельно, потому что у них разные потенциалы реверсии. B-нейроны (DB, VB)
+чувствуют растяжение своей стороны: изгиб поля назад от нейрона, сглаженный с τ_sr, как у второго
+уровня; растяжение открывает канал с потенциалом реверсии E_exc, сжатие — с E_inh, проводимость
+g_sr·|x|, поэтому потенциал остаётся между E_inh и E_exc; команда вперёд — ток +I в AVB и −I в AVA. Выход на мышцы — активность
+синапса, отнесённая к наибольшей a_r/(a_r + a_d), со знаком медиатора, с усилением
+нервно-мышечного синапса; у нейронов вне тяжа — ещё с множителем nmj-head-scale. Вход мышцы —
+сумма с весами доли контактов, поэтому полностью активные мотонейроны тяжа дают вход, равный
+усилению, как ±1 бинарной B-единицы второго уровня.")

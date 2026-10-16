@@ -122,7 +122,9 @@
                        ((string= name "SIDE") (leaf :element :side))))
                 ((eq family :prop-unit)
                  (cond ((string= name "POSITION") (leaf :element :position))
-                       ((string= name "INDEX") (leaf :element :index)))))))))
+                       ((string= name "INDEX") (leaf :element :index))))
+                ((eq family :neuron)
+                 (leaf :element (intern (string-upcase name) :keyword))))))))
 
 (defun geometry-name-p (env symbol)
   (member (symbol-name symbol) (family-geometry (lenv-family env)) :key #'symbol-name :test #'string=))

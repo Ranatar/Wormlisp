@@ -9,5 +9,5 @@
   (:use #:cl #:worm.core)
   (:import-from #:worm.dsl #:define-component #:define-element-array #:defmodel)
   (:export
-   #:worm-3d #:worm-3d-kinematic #:worm-3d-proprio #:worm-3d-proprio-graded
+   #:worm-3d #:worm-3d-kinematic #:worm-3d-proprio #:worm-3d-proprio-graded #:worm-3d-connectome
    #:edge-stiffness #:muscle-f-max #:muscle-lambda-min))

@@ -52,6 +52,7 @@
                (dt (getf job :dt))
                (record (getf job :record)))
           (setf run (worm.runtime:start-run model :params set :dt dt :id id :directory tmp
+                                                  :neural-every (getf job :neural-every 10)
                                                   :record (and record t)
                                                   :frames-every (getf record :frames-every 0.01d0)
                                                   :policy :batch :thread nil))

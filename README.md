@@ -4,7 +4,7 @@
 тело, мышцы с кальциевой кинетикой, три уровня нервного управления и среда по
 теории резистивных сил.
 
-Сделаны **этапы 0–11**: каркас репозитория, REPL в tmux, проверочная страница
+Сделаны **этапы 0–12**: каркас репозитория, REPL в tmux, проверочная страница
 на порту 8740; нижние слои — типы и условия, журнал, реестр параметров с
 единицами, трубка N × K с величинами покоя и 95 мышц с привязкой к рёбрам;
 решатель — ленточная LU, линейно-неявный шаг с расщеплением, контрольные
@@ -22,7 +22,9 @@
 в браузере по WebSocket с правкой параметров и решениями о сбоях;
 проприоцептивная цепь второго уровня (модель `worm-3d-proprio`): волна
 возникает без внешнего ритма и замедляется от воды к агару; пакетные
-развёртки параметров отдельными процессами SBCL со сводкой метрик походки.
+развёртки параметров отдельными процессами SBCL со сводкой метрик походки;
+третий уровень — сеть 147 нейронов коннектома Cook et al. 2019 (модель
+`worm-3d-connectome`): волна возникает в сети и червь ползёт по агару.
 
 ## Окружение
 
@@ -164,14 +166,16 @@ src/<система>/      worm/platform, worm/core, … worm/analysis
 src/package.lisp    фасадный пакет WORM и пакет WORM-USER
 tests/              FiveAM; tests/structure.lisp сверяет слои с архитектурой
 scripts/            init.lisp, repl.sh, repl-start.lisp, run-tests.lisp, build-image.lisp,
-                    run-sweep.sh, make-muscles.lisp, make-selftest.lisp,
+                    run-sweep.sh, convert-connectome.lisp, make-muscles.lisp, make-selftest.lisp,
                     record-oracle-runs.lisp, bench.lisp
 viewer/             worm-viewer.html, lib/ (Three.js r128), selftest-data.js
 vendor/             библиотеки с закреплёнными коммитами
 tools/firefox/      Firefox 115 для Linux частями; tools/firefox/install.sh
 docs/               документация проекта (главная копия)
 params/             наборы параметров: base-v1, water-v1, agar-a-v1, agar-c-v1
-anatomy/            muscles.sexp — 95 мышц (порождается scripts/make-muscles.lisp)
+anatomy/            muscles.sexp — 95 мышц (порождается scripts/make-muscles.lisp);
+                    neurons.sexp, synapses.sexp — коннектом (scripts/convert-connectome.lisp
+                    из anatomy/source/)
 bench/              замеры шага (make bench)
 configs/ sweeps/    конфигурации прогонов и описания развёрток (этапы 10–11)
 ```

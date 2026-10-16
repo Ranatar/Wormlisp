@@ -35,7 +35,11 @@
   mechanical     ; имена экземпляров механики
   relations)     ; ((провод . csr) …), csr — вектор на элемент-получатель: ((источник . вес) …)
 
-(defun family-count (family topology binding &optional params)
+(defun anatomy-connectome-or-error (anatomy)
+  (or (and anatomy (worm.anatomy:anatomy-connectome anatomy))
+      (error 'model-error :message "семейство :neuron требует коннектома: anatomy/neurons.sexp и synapses.sexp рядом с файлом мышц")))
+
+(defun family-count (family topology binding &optional params anatomy)
   (cond ((member family +edge-families+) (worm.topology:family-size topology family))
         ((eq family :compartment) (1- (worm.topology:tube-rings topology)))
         ((eq family :ring) (worm.topology:tube-rings topology))
@@ -46,7 +50,8 @@
         ((eq family :prop-unit)
          (if params (round (worm.params:param-value params :units))
              (error 'model-error :message "семейство :prop-unit требует параметра units")))
-        (t (error 'model-error :message (format nil "семейство ~(~S~) интерпретатор пока не исполняет (этапы 10 и 12)" family)))))
+        ((eq family :neuron) (length (worm.anatomy:connectome-neurons (anatomy-connectome-or-error anatomy))))
+        (t (error 'model-error :message (format nil "семейство ~(~S~) интерпретатор не исполняет" family)))))
 
 (defun family-slot-map (family topology)
   "Для каждого элемента — вектор номеров узлов его слотов (в порядке FAMILY-SLOTS)."
@@ -77,7 +82,49 @@
 (defun dorsal-node-p (k ring-nodes)
   (member (worm.topology:node-quadrant k ring-nodes) '(:dorsal-left :dorsal-right)))
 
-(defun family-elements (family topology binding &optional params)
+(defparameter +dorsal-neuron-classes+ '(:da :db :dd :as))
+(defparameter +ventral-neuron-classes+ '(:va :vb :vd :vc))
+
+(defparameter +command-classes+ '(:ava :avb :avd :ave :pvc))
+(defparameter +cord-classes+ '(:as :da :db :dd :va :vb :vc :vd :pda :pdb))
+
+(defun command-neuron-p (neuron) (member (worm.anatomy:neuron-class neuron) +command-classes+))
+
+(defun scaled-gaps (connectome params)
+  "Щелевые контакты ((a b вес) …) с масштабом класса связи: gap-command-scale
+у связей командного интернейрона (AVA, AVB, AVD, AVE, PVC) с остальными,
+gap-motor-scale — у прочих (параметры, «Уровень 3»)."
+  (let ((neurons (worm.anatomy:connectome-neurons connectome))
+        (command (float (worm.params:param-value params :gap-command-scale) 0d0))
+        (motor (float (worm.params:param-value params :gap-motor-scale) 0d0)))
+    (loop for (a b c) across (worm.anatomy:connectome-gap connectome)
+          for ca = (command-neuron-p (aref neurons a)) for cb = (command-neuron-p (aref neurons b))
+          collect (list a b (* c (if (and (or ca cb) (not (and ca cb))) command motor))))))
+
+(defun scaled-chemical (connectome params)
+  "Химические синапсы ((пре пост вес) …), вес — контакты × chemical-scale."
+  (let ((k (float (worm.params:param-value params :chemical-scale) 0d0)))
+    (loop for (a b c) across (worm.anatomy:connectome-chemical connectome) collect (list a b (* k c)))))
+
+(defun neuron-elements (connectome params)
+  (let* ((neurons (worm.anatomy:connectome-neurons connectome))
+         (n (length neurons))
+         (gap-total (make-dvec n)))
+    (loop for (a b c) in (scaled-gaps connectome params)
+          do (incf (aref gap-total a) c) (incf (aref gap-total b) c))
+    (flet ((column (f) (map 'dvec (lambda (x) (float (funcall f x) 0d0)) neurons)))
+      (list (cons :position (column (lambda (x) (or (worm.anatomy:neuron-position x) 0.5d0))))
+            (cons :side (column (lambda (x) (let ((c (worm.anatomy:neuron-class x)))
+                                              (cond ((member c +dorsal-neuron-classes+) 1)
+                                                    ((member c +ventral-neuron-classes+) -1)
+                                                    (t 0))))))
+            (cons :gaba (column (lambda (x) (if (eq (worm.anatomy:neuron-transmitter x) :gaba) 1 0))))
+            (cons :proprioceptive (column (lambda (x) (if (member (worm.anatomy:neuron-class x) '(:db :vb)) 1 0))))
+            (cons :command (column (lambda (x) (case (worm.anatomy:neuron-class x) (:avb 1) (:ava -1) (t 0)))))
+            (cons :cord (column (lambda (x) (if (member (worm.anatomy:neuron-class x) +cord-classes+) 1 0))))
+            (cons :gap-total gap-total)))))
+
+(defun family-elements (family topology binding &optional params anatomy)
   "Величины элемента: ((имя . dvec) …)."
   (let ((kk (worm.topology:tube-ring-nodes topology))
         (frac (worm.topology:tube-ring-fractions topology)))
@@ -104,6 +151,7 @@
                (setf (aref index u) (float (1+ u) 0d0)
                      (aref pos u) (/ (+ u 0.5d0) m)))
              (list (cons :index index) (cons :position pos))))
+          ((eq family :neuron) (neuron-elements (anatomy-connectome-or-error anatomy) params))
           ((eq family :compartment)
            (list (cons :rest-volume (worm.topology:tube-rest-volume topology))))
           ((eq family :ring)
@@ -150,16 +198,11 @@ rf-length. При поле вперёд у первой
         (list start (min 1d0 (+ start len)) :posterior)
         (list (max 0d0 (- start len)) start :anterior))))
 
-(defun relation-csr (wire src dst binding &optional topology params)
-  "Для каждого элемента-получателя — список (источник . вес)."
-  (declare (ignore topology))
-  (let ((n-dst (running-count dst)) (csr nil))
-    (setf csr (make-array n-dst :initial-element '()))
-    (ecase (wire-via wire)
-      (:receptive-field
-       ;; сумма по полю, нормированная на число рёбер одной стороны в нём:
-       ;; вес N_SR / n, N_SR = 48·rf-length — число сегментов модели Бойла
-       (let* ((pos (cdr (assoc :position (running-elements src))))
+(defun receptive-field-csr (src csr n-dst params)
+  "Поле проприоцептивной единицы: сумма по полю, нормированная на число
+рёбер одной стороны в нём: вес N_SR / n, N_SR = 48·rf-length — число
+сегментов модели Бойла."
+  (let* ((pos (cdr (assoc :position (running-elements src))))
               (n-sr (* 48 (float (worm.params:param-value params :rf-length) 0d0))))
          (dotimes (u n-dst)
            (destructuring-bind (a b direction) (receptive-field u n-dst params)
@@ -172,14 +215,70 @@ rf-length. При поле вперёд у первой
                  ;; сигнала обратный
                  (let ((w (* (if (eq direction :anterior) -1 1)
                              (/ n-sr (/ (length edges) 2)))))
-                   (setf (aref csr u) (mapcar (lambda (e) (cons e w)) edges)))))))))
+                   (setf (aref csr u) (mapcar (lambda (e) (cons e w)) edges))))))))
+  csr)
+
+(defun innervation-units-csr (src dst csr n-dst)
+  "Мышца — от проприоцептивной единицы своего участка, вес — сторона мышцы."
+  (let ((units (running-count src))
+        (side (cdr (assoc :side (running-elements dst))))
+        (pos (cdr (assoc :position (running-elements dst)))))
+    (dotimes (m n-dst)
+      (setf (aref csr m) (list (cons (unit-of-position (aref pos m) units) (aref side m))))))
+  csr)
+
+(defun relation-csr (wire src dst binding &optional topology params anatomy)
+  "Для каждого элемента-получателя — список (источник . вес)."
+  (declare (ignore topology))
+  (let ((n-dst (running-count dst)) (csr nil))
+    (setf csr (make-array n-dst :initial-element '()))
+    (ecase (wire-via wire)
+      ((:receptive-field)
+       (if (eq (instance-family (running-instance dst)) :neuron)
+           ;; поле B-нейрона длиной rf-length назад или вперёд от его положения,
+           ;; тот же вес; поле вперёд (Wen 2012) — с обратным знаком, как у единиц
+           (let* ((pos (cdr (assoc :position (running-elements src))))
+                  (len (float (worm.params:param-value params :rf-length) 0d0))
+                  (anterior (eq (worm.params:param-value params :rf-direction) :anterior))
+                  (n-sr (* 48 len))
+                  (npos (cdr (assoc :position (running-elements dst))))
+                  (prop (cdr (assoc :proprioceptive (running-elements dst)))))
+             (dotimes (u n-dst)
+               (when (plusp (aref prop u))
+                 (let* ((a (if anterior (max 0d0 (- (aref npos u) len)) (aref npos u)))
+                        (b (if anterior (aref npos u) (min 1d0 (+ (aref npos u) len))))
+                        (edges (loop for e below (length pos) when (<= a (aref pos e) b) collect e)))
+                   (when edges
+                     (let ((w (* (if anterior -1 1) (/ n-sr (/ (length edges) 2)))))
+                       (setf (aref csr u) (mapcar (lambda (e) (cons e w)) edges))))))))
+           (receptive-field-csr src csr n-dst params)))
+      (:chemical
+       (loop for (pre post c) in (scaled-chemical (anatomy-connectome-or-error anatomy) params)
+             do (push (cons pre c) (aref csr post)))
+       (dotimes (e n-dst) (setf (aref csr e) (nreverse (aref csr e)))))
+      (:gap
+       (loop for (a b c) in (scaled-gaps (anatomy-connectome-or-error anatomy) params)
+             do (push (cons b c) (aref csr a)) (push (cons a c) (aref csr b)))
+       (dotimes (e n-dst) (setf (aref csr e) (nreverse (aref csr e)))))
       (:innervation
-       ;; мышца — от единицы своего участка, вес — сторона мышцы
-       (let ((units (running-count src))
-             (side (cdr (assoc :side (running-elements dst))))
-             (pos (cdr (assoc :position (running-elements dst)))))
-         (dotimes (m n-dst)
-           (setf (aref csr m) (list (cons (unit-of-position (aref pos m) units) (aref side m)))))))
+       (if (eq (instance-family (running-instance src)) :neuron)
+           ;; нервно-мышечные синапсы коннектома, вес — доля контактов: число
+           ;; контактов, делённое на сумму возбуждающих контактов мотонейронов
+           ;; тяжа на эту мышцу (у мышц без них — всех возбуждающих)
+           (let* ((connectome (anatomy-connectome-or-error anatomy))
+                  (neurons (worm.anatomy:connectome-neurons connectome))
+                  (nmj (worm.anatomy:connectome-nmj connectome))
+                  (cord (make-dvec n-dst)) (all (make-dvec n-dst)))
+             (loop for (j m c) across nmj
+                   for x = (aref neurons j)
+                   unless (eq (worm.anatomy:neuron-transmitter x) :gaba)
+                     do (incf (aref all m) c)
+                        (when (member (worm.anatomy:neuron-class x) +cord-classes+) (incf (aref cord m) c)))
+             (loop for (j m c) across nmj
+                   do (push (cons j (/ c (if (plusp (aref cord m)) (aref cord m) (max 1d0 (aref all m)))))
+                            (aref csr m)))
+             (dotimes (e n-dst) (setf (aref csr e) (nreverse (aref csr e)))))
+           (innervation-units-csr src dst csr n-dst)))
       (:identity (dotimes (e n-dst) (setf (aref csr e) (list (cons e 1d0)))))
       (:broadcast (dotimes (e n-dst) (setf (aref csr e) (list (cons 0 1d0)))))
       (:attachment
@@ -207,7 +306,10 @@ rf-length. При поле вперёд у первой
                                                            (instance-name inst))))
                      (t (push (instance-name inst) active)
                         (dolist (w wiring)
-                          (when (eq (wire-dst-instance w) (instance-name inst))
+                          ;; связь экземпляра с самим собой (нейроны коннектома)
+                          ;; порядка не задаёт: её выходы зависят только от состояния
+                          (when (and (eq (wire-dst-instance w) (instance-name inst))
+                                     (not (eq (wire-src-instance w) (instance-name inst))))
                             (let ((src (find (wire-src-instance w) instances :key #'instance-name)))
                               (when src (visit src)))))
                         (pop active)
@@ -259,11 +361,11 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                  (let* ((family (instance-family inst))
                         (component (instance-component inst))
                         (kernel (instance-kernel inst kk))
-                        (count (family-count family topology binding set))
+                        (count (family-count family topology binding set anatomy))
                         (r (make-running
                             :instance inst :kernel kernel :count count
                             :slots (family-slot-map family topology)
-                            :elements (family-elements family topology binding set)
+                            :elements (family-elements family topology binding set anatomy)
                             :params (loop for (pname kind) in (component-params component)
                                           for global = (or (cdr (assoc pname (instance-renames inst))) pname)
                                           when (eq kind :scalar)
@@ -304,6 +406,13 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                                                  (dotimes (e count v)
                                                    (setf (aref v e) (first (worm.ir:run-evaluator ev (element-env r e nil nil 0d0))))))))))
                    r))))
+    ;; выход, который экземпляр передаёт сам себе, не должен зависеть от входов
+    (dolist (w wiring)
+      (when (eq (wire-src-instance w) (wire-dst-instance w))
+        (let ((r (find (wire-src-instance w) running :key (lambda (r) (instance-name (running-instance r))))))
+          (when (cdr (assoc (wire-src-port w) (kernel-output-deps (running-kernel r))))
+            (error 'model-error :message (format nil "выход ~(~A.~A~) идёт в тот же экземпляр и зависит от его входов"
+                                                 (wire-src-instance w) (wire-src-port w)))))))
     (make-model-instance
      :spec spec :topology topology :anatomy anatomy :binding binding :medium medium
      :mechanical (rest (assoc :mechanical (model-spec-subsystems spec)))
@@ -314,7 +423,7 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                         collect (cons w (relation-csr w
                                                       (find (wire-src-instance w) running :key (lambda (r) (instance-name (running-instance r))))
                                                       (find (wire-dst-instance w) running :key (lambda (r) (instance-name (running-instance r))))
-                                                      binding topology set))))))
+                                                      binding topology set anatomy))))))
 
 (defun element-env (r e y aux time)
   "Функция ключ → число для элемента E экземпляра R."
@@ -350,6 +459,14 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
          (n-out (length (kernel-outputs kernel)))
          (n-force (length (kernel-forces kernel)))
          (out (make-dvec (length (kernel-roots kernel)))))
+    ;; связь экземпляра с самим собой: выходы по состоянию — раньше входов
+    (when (some (lambda (rel) (and (eq (wire-src-instance (car rel)) (instance-name inst))
+                                   (eq (wire-dst-instance (car rel)) (instance-name inst))))
+                (model-instance-relations model))
+      (dotimes (e (running-count r))
+        (worm.ir:run-evaluator (running-evaluator r) (element-env r e y aux time) out)
+        (loop for (name) in (kernel-outputs kernel) for k from 0
+              do (setf (aref (cdr (assoc name (running-outputs r))) e) (aref out k)))))
     (loop for (name . v) in (running-inputs r)
           do (let ((default (third (assoc name (component-inputs (instance-component inst))))))
                (fill v (or default 0d0))))
@@ -359,7 +476,7 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                                       (running-outputs (running-named model (wire-src-instance w))))))
                      (dst (cdr (assoc (wire-dst-port w) (running-inputs r)))))
                  (dotimes (e (length dst))
-                   (setf (aref dst e) (loop for (s . wt) in (aref csr e) sum (* wt (aref src s)))))))
+                   (setf (aref dst e) (float (loop for (s . wt) in (aref csr e) sum (* wt (aref src s))) 0d0)))))
     (dotimes (e (running-count r))
       (worm.ir:run-evaluator (running-evaluator r) (element-env r e y aux time) out)
       (loop for (name) in (kernel-outputs kernel) for k from 0

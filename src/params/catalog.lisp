@@ -115,6 +115,27 @@
 (define-parameter contact-g      :unit :pS :bounds (0 100000) :doc "Проводимость одного контакта.")
 (define-parameter e-exc          :unit :mV :bounds (-200 200) :doc "Потенциал реверсии возбуждающего синапса.")
 (define-parameter e-inh          :unit :mV :bounds (-200 200) :doc "Потенциал реверсии тормозного синапса.")
+(define-parameter syn-rise       :unit :Hz :bounds (0 1000) :doc "Скорость активации синапса a_r (Kunert 2014).")
+(define-parameter syn-decay      :unit :Hz :bounds (0 1000) :doc "Скорость спада синапса a_d.")
+(define-parameter syn-beta       :unit nil :bounds (0 10) :doc "Крутизна синаптической сигмоиды β, 1/мВ.")
+(define-parameter command-current :unit "pA" :bounds (-1000 1000)
+  :doc "Команда движения вперёд: ток +I в AVB и −I в AVA.")
+(define-parameter neuron-rest-activity :unit nil :bounds (0.001 0.999) :live nil
+  :doc "Сигмоида синапса φ_r в покое сети; по ней считаются пороги V_th (у Kunert 1/2).")
+(define-parameter neuron-sr-conductance :unit :pS :bounds (0 1000000)
+  :doc "Проводимость канала растяжения B-нейрона на единицу сигнала изгиба поля.")
+(define-parameter gap-command-scale :unit nil :bounds (0 100) :live nil
+  :doc "Масштаб щелевых контактов командных интернейронов с остальными нейронами.")
+(define-parameter gap-motor-scale :unit nil :bounds (0 100) :live nil
+  :doc "Масштаб остальных щелевых контактов.")
+(define-parameter chemical-scale :unit nil :bounds (0 100) :live nil
+  :doc "Масштаб химических синапсов между нейронами.")
+(define-parameter nmj-head-scale :unit nil :bounds (0 100)
+  :doc "Вес нервно-мышечных синапсов нейронов вне вентрального тяжа (головные, сублатеральные).")
+(define-parameter nmj-inhibition-scale :unit nil :bounds (0 100)
+  :doc "Вес тормозного (ГАМК) нервно-мышечного синапса относительно возбуждающего.")
+(define-parameter neuron-nmj-gain :unit nil :bounds (0 1000)
+  :doc "Вход мышцы на единицу активности синапса при среднем числе контактов на мышцу.")
 
 ;;; Среда
 (define-parameter c-t            :unit :uN*s/mm^2 :bounds (0 1d6) :doc "Касательное сопротивление на единицу длины.")

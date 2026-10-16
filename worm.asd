@@ -52,7 +52,8 @@
   :serial t
   :components ((:file "package")
                (:file "muscles")
-               (:file "anatomy")))
+               (:file "anatomy")
+               (:file "connectome")))
 
 (defsystem "worm/params"
   :description "Слой 1. Реестр параметров, единицы, наборы."
@@ -208,6 +209,7 @@
                (:file "runtime" :depends-on ("suite"))
                (:file "runtime-repl" :depends-on ("runtime" "physics"))
                (:file "batch" :depends-on ("runtime" "physics"))
+               (:file "connectome" :depends-on ("runtime" "dsl"))
                (:file "io" :depends-on ("suite"))
                (:file "analysis" :depends-on ("io"))
                (:file "server" :depends-on ("runtime"))

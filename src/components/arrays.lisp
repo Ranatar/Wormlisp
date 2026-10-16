@@ -119,3 +119,60 @@
   :documentation "F_max клетки, мкН.")
 (define-element-array muscle-lambda-min :family :muscle :compute #'muscle-lambda-min
   :documentation "Предельная относительная длина клетки.")
+
+;;; Нейроны коннектома (уровень 3, этап 12)
+
+(defun solve-dense (a b)
+  "Решение A·x = B методом Гаусса с выбором ведущего элемента; A и B портятся."
+  (let ((n (length b)))
+    (dotimes (k n)
+      (let ((p (loop with best = k for i from k below n
+                     when (> (abs (aref a i k)) (abs (aref a best k))) do (setf best i)
+                     finally (return best))))
+        (when (/= p k)
+          (dotimes (j n) (rotatef (aref a k j) (aref a p j)))
+          (rotatef (aref b k) (aref b p)))
+        (loop for i from (1+ k) below n
+              do (let ((f (/ (aref a i k) (aref a k k))))
+                   (unless (zerop f)
+                     (loop for j from k below n do (decf (aref a i j) (* f (aref a k j))))
+                     (decf (aref b i) (* f (aref b k))))))))
+    (let ((x (make-dvec n)))
+      (loop for i from (1- n) downto 0
+            do (setf (aref x i) (/ (- (aref b i) (loop for j from (1+ i) below n sum (* (aref a i j) (aref x j))))
+                                   (aref a i i))))
+      x)))
+
+(defun neuron-threshold (context)
+  "Порог V_th каждого нейрона: в покое сети без внешних токов сигмоида
+синапса каждого нейрона равна φ_r (neuron-rest-activity; у Kunert et al.
+2014 φ_r = 1/2). Тогда s_eq = a_r·φ_r/(a_r·φ_r + a_d), потенциал покоя V_eq
+решает линейную систему G_c(V − E_c) + g·Σ_j gap_ij(V_i − V_j) +
+g·s_eq·Σ_j c_ij(V_i − E_j) = 0, а V_th = V_eq − ln(φ_r/(1 − φ_r))/β."
+  (let* ((connectome (worm.anatomy:anatomy-connectome (getf context :anatomy)))
+         (neurons (worm.anatomy:connectome-neurons connectome))
+         (n (length neurons))
+         (gc (param context :neuron-g-leak)) (ec (param context :neuron-e-leak))
+         (g (param context :contact-g))
+         (e-exc (param context :e-exc)) (e-inh (param context :e-inh))
+         (ar (param context :syn-rise)) (ad (param context :syn-decay))
+         (phi (param context :neuron-rest-activity))
+         (beta (param context :syn-beta))
+         (s-eq (/ (* ar phi) (+ (* ar phi) ad)))
+         (a (make-array (list n n) :element-type 'double-float :initial-element 0d0))
+         (b (make-dvec n)))
+    (dotimes (i n)
+      (incf (aref a i i) gc)
+      (incf (aref b i) (* gc ec)))
+    (loop for (i j c) in (worm.dsl::scaled-gaps connectome (getf context :params))
+          do (incf (aref a i i) (* g c)) (incf (aref a j j) (* g c))
+             (decf (aref a i j) (* g c)) (decf (aref a j i) (* g c)))
+    (loop for (pre post c) in (worm.dsl::scaled-chemical connectome (getf context :params))
+          for e = (if (eq (worm.anatomy:neuron-transmitter (aref neurons pre)) :gaba) e-inh e-exc)
+          do (incf (aref a post post) (* g s-eq c))
+             (incf (aref b post) (* g s-eq c e)))
+    (let ((shift (/ (log (/ phi (- 1 phi))) beta)))
+      (map 'dvec (lambda (v) (- v shift)) (solve-dense a b)))))
+
+(define-element-array neuron-threshold :family :neuron :compute #'neuron-threshold
+  :documentation "Порог синаптической сигмоиды нейрона, мВ: потенциал покоя сети при φ = 1/2.")
