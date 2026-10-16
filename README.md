@@ -68,8 +68,8 @@ scripts/repl.sh            # подключиться к REPL или запус�
 - **Запустить в фоне:** `scripts/repl.sh --detached`.
 - Порт и память задаются переменными: `WORM_PORT=8741 WORM_HEAP_MB=1024 scripts/repl.sh`.
 
-В REPL активен пакет `WORM-USER`. Сейчас там есть `(about)`, `(serve :port 8740)`
-и `(stop-serving)`.
+В REPL активен пакет `WORM-USER`: в нём весь API — `(about)`, `(serve :port 8740)`,
+`(stop-serving)`, функции прогона из раздела ниже и `(run-sweep …)`.
 
 После `git pull` образ пересобирать не обязательно: ASDF сам перекомпилирует
 изменённые файлы при старте. `make image` ускоряет следующий запуск.
@@ -163,8 +163,9 @@ Makefile            test, test-full, bench, image, repl, clean
 src/<система>/      worm/platform, worm/core, … worm/analysis
 src/package.lisp    фасадный пакет WORM и пакет WORM-USER
 tests/              FiveAM; tests/structure.lisp сверяет слои с архитектурой
-scripts/            init.lisp, repl.sh, run-tests.lisp, build-image.lisp, make-muscles.lisp,
-                    make-selftest.lisp, record-oracle-runs.lisp, bench.lisp
+scripts/            init.lisp, repl.sh, repl-start.lisp, run-tests.lisp, build-image.lisp,
+                    run-sweep.sh, make-muscles.lisp, make-selftest.lisp,
+                    record-oracle-runs.lisp, bench.lisp
 viewer/             worm-viewer.html, lib/ (Three.js r128), selftest-data.js
 vendor/             библиотеки с закреплёнными коммитами
 tools/firefox/      Firefox 115 для Linux частями; tools/firefox/install.sh
@@ -172,7 +173,7 @@ docs/               документация проекта (главная ко
 params/             наборы параметров: base-v1, water-v1, agar-a-v1, agar-c-v1
 anatomy/            muscles.sexp — 95 мышц (порождается scripts/make-muscles.lisp)
 bench/              замеры шага (make bench)
-configs/ sweeps/    заполняются на своих этапах
+configs/ sweeps/    конфигурации прогонов и описания развёрток (этапы 10–11)
 ```
 
 ## Документы проекта

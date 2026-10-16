@@ -138,11 +138,12 @@
           (:checkpoint (fulfill promise (write-disk-checkpoint run)))
           (:rollback
            (require-not-problem problem op)
-           (let ((target (first args)))
+           (destructuring-bind (target &optional params) args
              (if (or (pathnamep target) (stringp target))
-                 (load-disk-checkpoint run target)
-                 (progn (worm.solver:restore-checkpoint (run-integrator run) :back target :params t)
-                        (run-log run "откат к точке ~D, шаг ~D" target (worm.solver:integrator-step (run-integrator run))))))
+                 (load-disk-checkpoint run target :params params)
+                 (progn (worm.solver:restore-checkpoint (run-integrator run) :back target :params params)
+                        (run-log run "откат к точке ~D, шаг ~D~:[~;, с параметрами точки~]" target
+                                 (worm.solver:integrator-step (run-integrator run)) params))))
            (when (run-writer run) (write-current-frame run))
            (publish-snapshot run)
            (fulfill promise (worm.solver:integrator-step (run-integrator run))))

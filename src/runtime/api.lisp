@@ -45,10 +45,11 @@
 
 ;;; Сборка и запуск
 
-(defun build-model (name &rest keys &key (params "water-v1") medium rings ring-nodes)
-  "Собрать модель NAME (имя defmodel) в compiled-model."
+(defun build-model (name &rest keys &key (params "water-v1") medium rings ring-nodes (cache t))
+  "Собрать модель NAME (имя defmodel) в compiled-model. CACHE — брать
+скомпилированный код из cache/codegen/ (повторная сборка — доли секунды)."
   (declare (ignore params medium rings ring-nodes))
-  (apply #'worm.codegen:compile-model name keys))
+  (apply #'worm.codegen:compile-model name :cache cache keys))
 
 (defun seconds-to-steps (seconds h)
   (if (and seconds (plusp seconds)) (max 1 (round seconds h)) 0))
@@ -67,7 +68,7 @@ THREAD NIL — без потока симуляции (пакетный рабо
   (let* ((set (if (worm.params:param-set-p params) params (worm.params:load-param-set params)))
          (model (if (compiled-model-p model)
                     model
-                    (worm.codegen:compile-model model :params set :medium medium :rings rings)))
+                    (worm.codegen:compile-model model :params set :medium medium :rings rings :cache t)))
          (h (float dt 0d0))
          (p (worm.codegen:model-param-vector model set))
          (it (multiple-value-bind (y0 yn0 z0) (worm.codegen:model-initial-state model)
@@ -279,10 +280,18 @@ THREAD NIL — без потока симуляции (пакетный рабо
   "Контрольная точка на диск, в checkpoints/ каталога прогона; путь."
   (command (the-run run) :checkpoint))
 
-(defun rollback (&optional (target 0) run)
-  "Откатиться: TARGET — номер точки в памяти (0 — последняя) или путь к
-точке на диске. Возвращает номер шага."
-  (command (the-run run) :rollback target))
+(defun rollback (&rest args)
+  "Откатиться: (rollback [TARGET [RUN]] [:params P] [:run RUN]). TARGET —
+номер точки в памяти (0 — последняя) или путь к точке на диске. Параметры
+по умолчанию не откатываются — правка, сделанная после снимка, остаётся;
+:params t восстанавливает и их. Возвращает номер шага."
+  (let ((target 0) (run nil))
+    (unless (or (null args) (keywordp (first args)))
+      (setf target (pop args))
+      (unless (or (null args) (keywordp (first args)))
+        (setf run (pop args))))
+    (destructuring-bind (&key params ((:run key-run) nil)) args
+      (command (the-run (or key-run run)) :rollback target (and params t)))))
 
 (defun record (on &optional run)
   "Включить или выключить запись кадров."
@@ -398,7 +407,8 @@ THREAD NIL — без потока симуляции (пакетный рабо
                     (t (worm.params:load-param-set params))))
          (model (worm.codegen:compile-model model-name :params set
                                                        :medium (or medium (worm.codegen:model-medium (run-model run)))
-                                                       :rings (model-rings (run-model run))))
+                                                       :rings (model-rings (run-model run))
+                                                       :cache t))
          (was (run-status run)))
     (unless (eq was :paused) (pause run))
     (prog1 (command run :replace model set keep-params)

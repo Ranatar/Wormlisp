@@ -322,8 +322,10 @@
     (run-log run "контрольная точка ~A" (enough-namestring path (run-directory run)))
     path))
 
-(defun load-disk-checkpoint (run path)
-  "Состояние из файла PATH: точка должна быть от той же модели."
+(defun load-disk-checkpoint (run path &key params)
+  "Состояние из файла PATH: точка должна быть от той же модели. Параметры
+точки берутся только при PARAMS; если они отличаются от текущих, это
+пишется в журнал прогона и выдаётся предупреждением."
   (let* ((model (run-model run))
          (c (worm.io:read-checkpoint-file path :model-hash (compiled-model-hash model)))
          (it (run-integrator run))
@@ -337,7 +339,12 @@
       (put "y-neural" (worm.solver:integrator-y-neural it))
       (put "z" (worm.solver:integrator-z it))
       (put "aux" (worm.solver:integrator-aux it))
-      (put "p" (worm.solver:integrator-params it)))
+      (let ((saved (cdr (assoc "p" v :test #'string=))))
+        (cond (params (put "p" (worm.solver:integrator-params it)))
+              ((and saved (not (equalp saved (worm.solver:integrator-params it))))
+               (run-log run "параметры точки ~A отличаются от текущих; оставлены текущие" (namestring path))
+               (warn "параметры точки ~A отличаются от текущих; оставлены текущие (:params t — взять из точки)"
+                     (namestring path))))))
     (worm.solver:set-integrator-position it :time (getf c :time) :step (getf c :step) :h (getf c :h))
     (run-log run "состояние из ~A, шаг ~D" (namestring path) (getf c :step))
     (getf c :step)))

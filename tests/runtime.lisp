@@ -140,6 +140,27 @@
         (is (= 250 (worm.runtime:rollback 1 run)))
         (is (= 250 (worm.runtime:snapshot-step (worm.runtime:snapshot run))))))))
 
+(test rollback-keeps-later-parameter-edits
+  ;; Архитектура, «Контрольные точки»: откат восстанавливает состояние, но не
+  ;; параметры — правка после снимка остаётся; :params t откатывает и их.
+  (with-test-run (run "rollback-params" :memory-checkpoint-every 0.05d0)
+    (worm.runtime:step-run 100 run)
+    (let ((path (worm.runtime:save-checkpoint run))
+          (before (worm.runtime:param :tau-ca run)))
+      (worm.runtime:set-param :tau-ca 60 :run run)
+      (worm.runtime:step-run 20 run)
+      (is (= 100 (worm.runtime:rollback 0 run)))
+      (is (worm.core:approx= 60d0 (worm.runtime:param :tau-ca run) :rel 1d-12) "правка осталась")
+      (is (= 100 (worm.runtime:rollback 0 :params t :run run)))
+      (is (worm.core:approx= before (worm.runtime:param :tau-ca run) :rel 1d-12) "с :params t — значение точки")
+      (worm.runtime:set-param :tau-ca 60 :run run)
+      (is (= 100 (handler-bind ((warning #'muffle-warning)) (worm.runtime:rollback path run))))
+      (is (worm.core:approx= 60d0 (worm.runtime:param :tau-ca run) :rel 1d-12) "с диска правка тоже остаётся")
+      (is (search "отличаются от текущих"
+                  (alexandria:read-file-into-string (merge-pathnames "log.txt" (worm.runtime:run-directory run)))))
+      (is (= 100 (worm.runtime:rollback path run :params t)))
+      (is (worm.core:approx= before (worm.runtime:param :tau-ca run) :rel 1d-12)))))
+
 (test disk-checkpoints-on-a-schedule
   (with-test-run (run "checkpoint-schedule" :checkpoint-every 0.04d0)
     (worm.runtime:step-run 130 run)
