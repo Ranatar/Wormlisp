@@ -73,10 +73,12 @@ tests/              FiveAM; tests/structure.lisp сверяет слои с ар
 scripts/            init.lisp, repl.sh, run-tests.lisp, build-image.lisp
 vendor/             библиотеки с закреплёнными коммитами
 tools/firefox/      Firefox 115 для Linux частями; tools/firefox/install.sh
+docs/               документация проекта (главная копия)
 anatomy/ params/ configs/ sweeps/ viewer/ bench/   заполняются на своих этапах
 ```
 
 ## Документы проекта
 
-Дизайн модели, архитектура, план этапов и параметры модели ведутся отдельно
-в Claude Docs. Работа идёт по плану этапов.
+В [docs/](docs/README.md): [дизайн модели](docs/design.md),
+[архитектура](docs/architecture.md), [план этапов](docs/plan.md) и
+[параметры модели](docs/parameters.md). Работа идёт по плану этапов.
