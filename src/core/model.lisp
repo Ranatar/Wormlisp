@@ -13,14 +13,14 @@
 ;;;;
 ;;;;   observables      (y-mech aux p obs)           наблюдаемые: кривизна колец, длины и
 ;;;;                                                 скорости мышц и т. п.
-;;;;   neural-discrete  (obs z p clock)              шаг дискретного состояния z (уровень 2),
+;;;;   neural-discrete  (y-neural obs z p clock)     шаг дискретного состояния z (уровень 2),
 ;;;;                                                 меняет z на месте
 ;;;;   neural-rhs       (y-neural obs z p clock f)   правая часть нервов уровня 3 при tₙ
 ;;;;   neural-jacobian  (y-neural obs z p clock jac) ∂f/∂y-neural, плотная матрица n×n
 ;;;;   neural-output    (y-neural obs z p clock syn) выход нервно-мышечной части при tₙ + h:
 ;;;;                                                 натяжение мышц (или их вход)
 ;;;;   mech-forces      (y-mech syn p g)             G(y): силы на узлы и правые части кальция
-;;;;   mech-matrix      (y-mech syn p clock ab)      лента матрицы шага B(y) − h·∂G/∂y
+;;;;   mech-matrix      (y-mech aux syn p clock ab)  лента матрицы шага B(y) + h·∂(B(y)v)/∂y|v=aux − h·∂G/∂y
 ;;;;   check-state      (y-mech p)                   NIL или (values причина номер) —
 ;;;;                                                 проверки вроде V/V⁰ отсеков
 ;;;;   event-functions  (y-mech y-neural z p out)    значения функций событий (этап 10)

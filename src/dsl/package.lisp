@@ -29,7 +29,7 @@
    #:kernel-derivs #:kernel-damping #:kernel-leaves #:kernel-component
    ;; интерпретатор
    #:instantiate #:model-instance #:interpret #:interpretation
-   #:interpretation-forces #:interpretation-outputs #:interpretation-derivs
+   #:interpretation-forces #:interpretation-outputs #:interpretation-derivs #:interpretation-discrete
    #:interpret-damping #:model-instance-topology #:model-instance-n-mech
    ;; условия
    #:dsl-location #:dsl-location-component #:dsl-location-form

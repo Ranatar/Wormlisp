@@ -35,7 +35,7 @@
   mechanical     ; имена экземпляров механики
   relations)     ; ((провод . csr) …), csr — вектор на элемент-получатель: ((источник . вес) …)
 
-(defun family-count (family topology binding)
+(defun family-count (family topology binding &optional params)
   (cond ((member family +edge-families+) (worm.topology:family-size topology family))
         ((eq family :compartment) (1- (worm.topology:tube-rings topology)))
         ((eq family :ring) (worm.topology:tube-rings topology))
@@ -43,6 +43,9 @@
         ((eq family :muscle) (if binding (length (worm.anatomy:muscle-binding-muscles binding))
                                  (error 'model-error :message "семейство :muscle требует анатомии")))
         ((eq family :global) 1)
+        ((eq family :prop-unit)
+         (if params (round (worm.params:param-value params :units))
+             (error 'model-error :message "семейство :prop-unit требует параметра units")))
         (t (error 'model-error :message (format nil "семейство ~(~S~) интерпретатор пока не исполняет (этапы 10 и 12)" family)))))
 
 (defun family-slot-map (family topology)
@@ -71,12 +74,36 @@
                                           'vector))))))
           (t nil))))
 
-(defun family-elements (family topology binding)
+(defun dorsal-node-p (k ring-nodes)
+  (member (worm.topology:node-quadrant k ring-nodes) '(:dorsal-left :dorsal-right)))
+
+(defun family-elements (family topology binding &optional params)
   "Величины элемента: ((имя . dvec) …)."
   (let ((kk (worm.topology:tube-ring-nodes topology))
         (frac (worm.topology:tube-ring-fractions topology)))
-    (cond ((member family +edge-families+)
+    (cond ((eq family :long-edge)
+           ;; сторона (+1 дорсальная, −1 вентральная) и R_max / R отрезка:
+           ;; относительное удлинение стороны, приведённое к толщине тела
+           (let* ((n (worm.topology:family-size topology family))
+                  (radius (worm.topology:tube-ring-radius topology))
+                  (rmax (worm.topology:tube-radius-max topology))
+                  (side (make-dvec n)) (factor (make-dvec n)) (pos (make-dvec n)))
+             (dotimes (e n)
+               (multiple-value-bind (i k) (floor e kk)
+                 (setf (aref side e) (if (dorsal-node-p k kk) 1d0 -1d0)
+                       (aref factor e) (/ rmax (* 0.5d0 (+ (aref radius i) (aref radius (1+ i)))))
+                       (aref pos e) (* 0.5d0 (+ (aref frac i) (aref frac (1+ i)))))))
+             (list (cons :rest-length (worm.topology:family-rest topology family))
+                   (cons :side side) (cons :radius-factor factor) (cons :position pos))))
+          ((member family +edge-families+)
            (list (cons :rest-length (worm.topology:family-rest topology family))))
+          ((eq family :prop-unit)
+           (let* ((m (family-count family topology binding params))
+                  (index (make-dvec m)) (pos (make-dvec m)))
+             (dotimes (u m)
+               (setf (aref index u) (float (1+ u) 0d0)
+                     (aref pos u) (/ (+ u 0.5d0) m)))
+             (list (cons :index index) (cons :position pos))))
           ((eq family :compartment)
            (list (cons :rest-volume (worm.topology:tube-rest-volume topology))))
           ((eq family :ring)
@@ -105,12 +132,54 @@
           ((and (symbolp v) v) (worm.params:param-value params v))
           (t default))))
 
-(defun relation-csr (wire src dst binding)
+(defun unit-of-position (s units)
+  "Единица (0…M−1), участку которой принадлежит положение S (доля L)."
+  (max 0 (min (1- units) (floor (* s units)))))
+
+(defun receptive-field (unit units params)
+  "Поле единицы UNIT: (начало конец направление) в долях L. Назад — от
+начала участка единицы к хвосту (участок самой единицы входит в поле),
+вперёд — от начала участка к голове (участок впереди, Wen 2012); длина
+rf-length. При поле вперёд у первой
+единицы впереди ничего нет: она — головной осциллятор с полем назад, как
+у Бойла."
+  (let ((len (float (worm.params:param-value params :rf-length) 0d0))
+        (start (/ unit units))
+        (direction (worm.params:param-value params :rf-direction)))
+    (if (or (eq direction :posterior) (zerop unit))
+        (list start (min 1d0 (+ start len)) :posterior)
+        (list (max 0d0 (- start len)) start :anterior))))
+
+(defun relation-csr (wire src dst binding &optional topology params)
   "Для каждого элемента-получателя — список (источник . вес)."
-  (declare (ignore src))
+  (declare (ignore topology))
   (let ((n-dst (running-count dst)) (csr nil))
     (setf csr (make-array n-dst :initial-element '()))
     (ecase (wire-via wire)
+      (:receptive-field
+       ;; сумма по полю, нормированная на число рёбер одной стороны в нём:
+       ;; вес N_SR / n, N_SR = 48·rf-length — число сегментов модели Бойла
+       (let* ((pos (cdr (assoc :position (running-elements src))))
+              (n-sr (* 48 (float (worm.params:param-value params :rf-length) 0d0))))
+         (dotimes (u n-dst)
+           (destructuring-bind (a b direction) (receptive-field u n-dst params)
+             (let ((edges (loop for e below (length pos)
+                                when (<= a (aref pos e) b) collect e)))
+               (when edges
+                 ;; дорсальных и вентральных рёбер в поле поровну. Поле вперёд
+                 ;; (Wen 2012) повторяет изгиб участка впереди: B-нейрон
+                 ;; стороны возбуждается сжатием этой стороны, поэтому знак
+                 ;; сигнала обратный
+                 (let ((w (* (if (eq direction :anterior) -1 1)
+                             (/ n-sr (/ (length edges) 2)))))
+                   (setf (aref csr u) (mapcar (lambda (e) (cons e w)) edges)))))))))
+      (:innervation
+       ;; мышца — от единицы своего участка, вес — сторона мышцы
+       (let ((units (running-count src))
+             (side (cdr (assoc :side (running-elements dst))))
+             (pos (cdr (assoc :position (running-elements dst)))))
+         (dotimes (m n-dst)
+           (setf (aref csr m) (list (cons (unit-of-position (aref pos m) units) (aref side m)))))))
       (:identity (dotimes (e n-dst) (setf (aref csr e) (list (cons e 1d0)))))
       (:broadcast (dotimes (e n-dst) (setf (aref csr e) (list (cons 0 1d0)))))
       (:attachment
@@ -190,11 +259,11 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                  (let* ((family (instance-family inst))
                         (component (instance-component inst))
                         (kernel (instance-kernel inst kk))
-                        (count (family-count family topology binding))
+                        (count (family-count family topology binding set))
                         (r (make-running
                             :instance inst :kernel kernel :count count
                             :slots (family-slot-map family topology)
-                            :elements (family-elements family topology binding)
+                            :elements (family-elements family topology binding set)
                             :params (loop for (pname kind) in (component-params component)
                                           for global = (or (cdr (assoc pname (instance-renames inst))) pname)
                                           when (eq kind :scalar)
@@ -245,7 +314,7 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                         collect (cons w (relation-csr w
                                                       (find (wire-src-instance w) running :key (lambda (r) (instance-name (running-instance r))))
                                                       (find (wire-dst-instance w) running :key (lambda (r) (instance-name (running-instance r))))
-                                                      binding))))))
+                                                      binding topology set))))))
 
 (defun element-env (r e y aux time)
   "Функция ключ → число для элемента E экземпляра R."
@@ -267,14 +336,15 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
           (:time time))))))
 
 (defstruct (interpretation (:copier nil))
-  forces outputs derivs)
+  forces outputs derivs discrete)
 
 (defun running-named (model name)
   (find name (model-instance-running model) :key (lambda (r) (instance-name (running-instance r)))))
 
-(defun evaluate-running (model r y aux time forces)
+(defun evaluate-running (model r y aux time forces &optional events)
   "Обновить входы R по связям и вычислить его ядро на всех элементах; силы —
-в FORCES, если он задан."
+в FORCES, если он задан; при EVENTS — применить события к дискретному
+состоянию (все условия элемента — по состоянию до применения)."
   (let* ((inst (running-instance r))
          (kernel (running-kernel r))
          (n-out (length (kernel-outputs kernel)))
@@ -300,14 +370,23 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                                    (if (integerp slot) slot (position slot (family-slots (instance-family inst) 0))))))
                    (incf (aref forces (+ (* 3 node) c)) (aref out k)))))
       (loop for (name) in (kernel-derivs kernel) for k from (+ n-out n-force)
-            do (setf (aref (cdr (assoc name (running-derivs r))) e) (aref out k))))))
+            do (setf (aref (cdr (assoc name (running-derivs r))) e) (aref out k)))
+      (when events
+        (let ((base (+ n-out n-force (length (kernel-derivs kernel)))))
+          (loop for (direction var) in (kernel-events kernel) for k from base by 2
+                for c = (aref out k)
+                when (if (eq direction :rising) (> c 0) (< c 0))
+                  collect (cons var (aref out (1+ k))) into sets
+                finally (loop for (var . v) in sets
+                              do (setf (aref (cdr (assoc var (running-discrete r))) e) v))))))))
 
-(defun interpret (model y &key aux (time 0d0) states)
+(defun interpret (model y &key aux (time 0d0) states events)
   "Модель при координатах Y в порядке шага решателя (архитектура, «Порядок
 одного шага»): выходы механики (наблюдаемые) по Y и AUX, затем
 нервно-мышечная часть — её выходы и производные состояния в момент TIME, затем
 силы механики с этими выходами. STATES — ((экземпляр (переменная . dvec) …) …)
-вместо текущих значений состояния."
+вместо текущих значений состояния. EVENTS — перед нервно-мышечной частью
+применить события к дискретному состоянию, как neural-discrete решателя."
   (let ((forces (make-dvec (model-instance-n-mech model)))
         (mech (remove-if-not (lambda (r) (member (instance-name (running-instance r)) (model-instance-mechanical model)))
                              (model-instance-running model)))
@@ -318,6 +397,8 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                (loop for (var . v) in vars
                      do (setf (cdr (assoc var (running-states r))) (dvec-from v)))))
     (dolist (r mech) (evaluate-running model r y aux time nil))
+    (when events
+      (dolist (r others) (evaluate-running model r y aux time nil (kernel-events (running-kernel r)))))
     (dolist (r others) (evaluate-running model r y aux time nil))
     (dolist (r mech) (evaluate-running model r y aux time forces))
     (make-interpretation
@@ -325,7 +406,10 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
      :outputs (loop for r in (model-instance-running model)
                     collect (cons (instance-name (running-instance r)) (running-outputs r)))
      :derivs (loop for r in (model-instance-running model)
-                   collect (cons (instance-name (running-instance r)) (running-derivs r))))))
+                   collect (cons (instance-name (running-instance r)) (running-derivs r)))
+     :discrete (loop for r in (model-instance-running model)
+                     when (running-discrete r)
+                       collect (cons (instance-name (running-instance r)) (running-discrete r))))))
 
 (defun interpret-damping (model y &key (time 0d0))
   "Матрица вязкости D (плотная, n × n) из членов :damping при координатах Y."

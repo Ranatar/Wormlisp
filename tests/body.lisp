@@ -33,7 +33,7 @@
     (dotimes (m 95) (setf (aref syn m) (random 20d0 state)))
     (flet ((matrix (h)
              (let ((ab (worm.core:make-band n kl kl)))
-               (funcall (worm.core:compiled-model-mech-matrix model) y syn p
+               (funcall (worm.core:compiled-model-mech-matrix model) y (worm.core:make-dvec 0) syn p
                         (worm.core:dvec-from (list 0 h 0)) ab)
                (band-to-dense ab n kl kl)))
            (forces (yy)
@@ -96,7 +96,7 @@
          (n (worm.core:compiled-model-n-mech model))
          (kl (worm.core:compiled-model-lower-band model))
          (ab (worm.core:make-band n kl kl)))
-    (funcall (worm.core:compiled-model-mech-matrix model) (worm.oracle:body-y0 body)
+    (funcall (worm.core:compiled-model-mech-matrix model) (worm.oracle:body-y0 body) (worm.core:make-dvec 0)
              (worm.core:make-dvec 95) (worm.oracle:body-pvec body) (worm.core:dvec-from '(0 0 0)) ab)
     (let ((b (band-to-dense ab n kl kl)))
       (is (loop for i below n always (plusp (aref b i i))))

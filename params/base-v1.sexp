@@ -47,13 +47,21 @@
   (tension-amplitude 15   :uN            :level :numeric   :source "кинематический вариант мышцы, этап 3")
   ;; уровень 2
   (units           12     nil            :level :estimate  :source "Boyle 2012")
-  (rf-length       0.5    nil            :level :estimate  :bounds (0.2 0.5)
-                                         :source "Boyle 2012: 0.5 L; Wen 2012: ~0.2 L")
+  (rf-length       0.35   nil            :level :fit       :bounds (0.2 0.5)
+                                         :source "этап 10; Boyle 2012: 0.5 L; Wen 2012: ~0.2 L")
   (rf-direction    :posterior nil        :level :fit
                                          :source "Boyle 2012: :posterior; Wen 2012: :anterior")
   (hysteresis      0.5    nil            :level :estimate  :source "Boyle 2012")
   (avb-ventral     1.175  nil            :level :estimate  :source "Boyle 2012, табл. 3")
   (avb-dorsal      0.675  nil            :level :estimate  :source "Boyle 2012, табл. 3")
+  (b-threshold     0.5    nil            :level :estimate  :source "Boyle 2012")
+  (sr-gain-base    0.224  nil            :level :estimate  :source "Boyle 2012, табл. 3")
+  (sr-gain-slope   0.056  nil            :level :estimate  :source "Boyle 2012, табл. 3")
+  (sr-scale        1.4    nil            :level :fit       :source "этап 10; у Бойла 1/4: (0,224 + 0,056·n)/4")
+  (dorsal-stretch-gain  0.8 nil          :level :estimate  :source "Boyle 2012")
+  (dorsal-compress-gain 1.2 nil          :level :estimate  :source "Boyle 2012")
+  (vd-inhibition   1      nil            :level :estimate  :source "Boyle 2012, раздел 3.7")
+  (sr-filter       200    :ms            :level :fit       :source "этап 10; Wen 2012: задержка передачи изгиба ~80 мс на участок")
   ;; уровень 3
   (neuron-c        1      :pF            :level :estimate  :source "Kunert 2014")
   (neuron-g-leak   10     :pS            :level :estimate  :source "Kunert 2014")

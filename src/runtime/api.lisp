@@ -59,10 +59,13 @@
                     (worm.codegen:compile-model model :params set :medium medium :rings rings)))
          (h (float dt 0d0))
          (p (worm.codegen:model-param-vector model set))
-         (it (multiple-value-bind (y0 yn0) (worm.codegen:model-initial-state model)
-               (worm.solver:make-integrator model :params p :y-mech y0 :y-neural yn0 :h h
+         (it (multiple-value-bind (y0 yn0 z0) (worm.codegen:model-initial-state model)
+               (worm.solver:make-integrator model :params p :y-mech y0 :y-neural yn0 :z z0 :h h
                                                   :neural-every neural-every
-                                                  :checkpoint-every (max 1 (seconds-to-steps memory-checkpoint-every h)))))
+                                                  ;; Q кратен R (решатель, «Контрольные точки»)
+                                                  :checkpoint-every (* neural-every
+                                                                       (max 1 (round (seconds-to-steps memory-checkpoint-every h)
+                                                                                     neural-every))))))
          (id (or id (worm.io:make-run-id (compiled-model-name model))))
          (run (%make-run :id id :model model :integrator it :param-set set :policy policy
                          :frame-every (max 1 (seconds-to-steps frames-every h))
@@ -308,16 +311,20 @@
 
 ;;; Пересборка
 
-(defun transfer-neural (old-model new-model old-yn new-yn)
-  "Перенести совпадающие по (экземпляр переменная) блоки y-neural."
+(defun transfer-blocks (old-layout new-layout old new)
+  "Перенести совпадающие по (экземпляр переменная) блоки вектора."
   (let ((copied '()))
-    (loop for (inst var off count) in (worm.codegen:model-neural-states new-model)
-          for src = (find-if (lambda (b) (and (eq (first b) inst) (eq (second b) var)))
-                             (worm.codegen:model-neural-states old-model))
+    (loop for (inst var off count) in new-layout
+          for src = (find-if (lambda (b) (and (eq (first b) inst) (eq (second b) var))) old-layout)
           when (and src (= (fourth src) count))
-            do (replace new-yn old-yn :start1 off :start2 (third src) :end2 (+ (third src) count))
+            do (replace new old :start1 off :start2 (third src) :end2 (+ (third src) count))
                (push (list inst var) copied))
     (nreverse copied)))
+
+(defun transfer-neural (old-model new-model old-yn new-yn)
+  "Перенести совпадающие по (экземпляр переменная) блоки y-neural."
+  (transfer-blocks (worm.codegen:model-neural-states old-model) (worm.codegen:model-neural-states new-model)
+                   old-yn new-yn))
 
 (defun same-topology-p (a b)
   (let ((ta (compiled-model-topology a)) (tb (compiled-model-topology b)))
@@ -339,10 +346,13 @@
             when old-index
               do (setf (aref p index) (aref (worm.solver:integrator-params old) old-index))
                  (push name kept-params)))
-    (multiple-value-bind (y0 yn0) (worm.codegen:model-initial-state new-model)
+    (multiple-value-bind (y0 yn0 z0) (worm.codegen:model-initial-state new-model)
       (when same (replace y0 (worm.solver:integrator-y-mech old)))
-      (let* ((neural (transfer-neural old-model new-model (worm.solver:integrator-y-neural old) yn0))
-             (it (worm.solver:make-integrator new-model :params p :y-mech y0 :y-neural yn0
+      (let* ((neural (append (transfer-neural old-model new-model (worm.solver:integrator-y-neural old) yn0)
+                             (transfer-blocks (worm.codegen:model-discrete-states old-model)
+                                              (worm.codegen:model-discrete-states new-model)
+                                              (worm.solver:integrator-z old) z0)))
+             (it (worm.solver:make-integrator new-model :params p :y-mech y0 :y-neural yn0 :z z0
                                                         :aux (and same (= (compiled-model-n-aux new-model)
                                                                           (length (worm.solver:integrator-aux old)))
                                                                   (worm.solver:integrator-aux old))

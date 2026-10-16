@@ -68,12 +68,23 @@
 ;;; Нервное управление, уровень 2
 (define-parameter units          :kind :integer :bounds (1 95) :live nil
   :doc "Число проприоцептивных единиц.")
-(define-parameter rf-length      :unit nil :bounds (0 1) :doc "Длина рецептивного поля, доля L.")
-(define-parameter rf-direction   :kind :choice :choices (:posterior :anterior)
-  :doc "Направление рецептивного поля.")
+(define-parameter rf-length      :unit nil :bounds (0 1) :live nil
+  :doc "Длина рецептивного поля, доля L; веса поля считаются при сборке.")
+(define-parameter rf-direction   :kind :choice :choices (:posterior :anterior) :live nil
+  :doc "Направление рецептивного поля: назад (Бойл) или вперёд (Wen).")
 (define-parameter hysteresis     :unit nil :bounds (0 1) :doc "Ширина гистерезиса ε B-нейрона.")
+(define-parameter b-threshold    :unit nil :bounds (0 10)
+  :doc "Середина порогов B-нейрона: включение при θ(1 + ε), выключение при θ(1 − ε).")
 (define-parameter avb-ventral    :unit nil :bounds (0 10) :doc "Вход AVB вентральных B-нейронов.")
 (define-parameter avb-dorsal     :unit nil :bounds (0 10) :doc "Вход AVB дорсальных B-нейронов.")
+(define-parameter sr-gain-base   :unit nil :bounds (0 10) :doc "Проводимость рецептора растяжения единицы n: (a + b·n)·s, a.")
+(define-parameter sr-gain-slope  :unit nil :bounds (0 10) :doc "Рост проводимости рецептора к хвосту, b.")
+(define-parameter sr-scale       :unit nil :bounds (0 100) :doc "Общий множитель s проводимости рецептора (у Бойла 1/4).")
+(define-parameter dorsal-stretch-gain  :unit nil :bounds (0 10) :doc "Усиление дорсального рецептора при растяжении.")
+(define-parameter dorsal-compress-gain :unit nil :bounds (0 10) :doc "Усиление дорсального рецептора при сжатии.")
+(define-parameter vd-inhibition  :unit nil :bounds (0 10) :doc "Торможение VB от VD, возбуждаемого DB.")
+(define-parameter sr-filter      :unit :ms :bounds (0.1 2000)
+  :doc "Постоянная сглаживания сигнала рецептора растяжения τ_sr (задержка передачи изгиба).")
 
 ;;; Нервное управление, уровень 3
 (define-parameter neuron-c       :unit :pF :bounds (0 1000) :doc "Ёмкость нейрона.")

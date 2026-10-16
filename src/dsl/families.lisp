@@ -38,11 +38,13 @@
 
 (defun family-geometry (family)
   "Геометрические имена, доступные выражениям семейства."
-  (cond ((edge-family-p family) '(edge-vector edge-length length-rate rest-length))
+  (cond ((eq family :long-edge) '(edge-vector edge-length length-rate rest-length side radius-factor))
+        ((edge-family-p family) '(edge-vector edge-length length-rate rest-length))
         ((eq family :compartment) '(volume rest-volume))
         ((eq family :ring) '(centroid ds rest-radius position))
         ((eq family :node) '(ds position tangent))
         ((eq family :muscle) '(position side))
+        ((eq family :prop-unit) '(position index))
         (t '())))
 
 (defun family-slots (family ring-nodes)
@@ -69,8 +71,13 @@
 ;;;                     стороны — взвешенная сумма
 ;;;   :identity         то же семейство, тот же элемент
 ;;;   :broadcast        :global → любое семейство: одно значение всем
-;;;   :innervation      управление → мышца (уровни 2 и 3, этапы 10 и 12)
-;;;   :receptive-field  геометрия колец → проприоцептивная единица (этап 10)
+;;;   :innervation      единица управления → мышцы её участка тела, вес —
+;;;                     сторона мышцы (+1 дорсальная, −1 вентральная); нейрон →
+;;;                     мышца — этап 12
+;;;   :receptive-field  продольные рёбра рецептивного поля → единица, вес
+;;;                     ±N_SR / (рёбер одной стороны в поле): сумма по полю,
+;;;                     нормированная на его длину; минус — у поля вперёд
+;;;                     (параметры, «Уровень 2»)
 
 (defstruct (relation (:copier nil))
   name pairs documentation)
@@ -84,8 +91,8 @@
                        :documentation "одно значение глобального элемента всем элементам")
         (make-relation :name :innervation :pairs '((:prop-unit . :muscle) (:neuron . :muscle))
                        :documentation "управление → мышца (этапы 10 и 12)")
-        (make-relation :name :receptive-field :pairs '((:ring . :prop-unit))
-                       :documentation "кольца → проприоцептивная единица (этап 10)")))
+        (make-relation :name :receptive-field :pairs '((:long-edge . :prop-unit))
+                       :documentation "продольные рёбра рецептивного поля → проприоцептивная единица (этап 10)")))
 
 (defun find-relation (name)
   (find name +relations+ :key #'relation-name))

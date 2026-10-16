@@ -11,7 +11,8 @@
 ;;;;     :outputs  ((<имя> <выражение>) …)
 ;;;;     :forces   (((pos <слот>) <вектор>) … (:gradient <скаляр> :scale <к>) …)
 ;;;;     :damping  ((<коэффициент> <линейная скорость>) …)
-;;;;     :events   ((<выражение> :rising|:falling <действие>) …)
+;;;;     :events   ((<условие> :rising|:falling (set <дискретная> <значение>)) …)
+;;;;               ; на границе шага: :rising — при условии > 0, :falling — при < 0
 ;;;;     :checks   ((<причина> <выражение>) …)  ; сбой шага, если значение < 0
 ;;;;     :documentation "…")
 ;;;;
@@ -129,8 +130,8 @@
               (let ((*form* d)) (dsl-error 'dsl-syntax-error "начальное значение дискретной переменной — число"))))
           (dolist (e events)
             (let ((*form* e))
-              (unless (and (consp e) (member (second e) '(:rising :falling)))
-                (dsl-error 'dsl-syntax-error ":events — (<выражение> :rising|:falling <действие>)"))))
+              (unless (and (consp e) (= (length e) 3) (member (second e) '(:rising :falling)))
+                (dsl-error 'dsl-syntax-error ":events — (<выражение> :rising|:falling (set <переменная> <значение>))"))))
           ;; пробное понижение на собственном семействе
           (lower-component c)
           c)))))

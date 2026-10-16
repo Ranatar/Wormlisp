@@ -199,6 +199,8 @@
                (:file "dsl" :depends-on ("body"))
                (:file "codegen" :depends-on ("dsl"))
                (:file "codegen-physics" :depends-on ("codegen" "physics"))
+               (:file "proprio" :depends-on ("codegen"))
+               (:file "proprio-physics" :depends-on ("proprio" "runtime" "physics"))
                (:file "runtime" :depends-on ("suite"))
                (:file "runtime-repl" :depends-on ("runtime" "physics"))
                (:file "io" :depends-on ("suite"))

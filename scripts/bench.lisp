@@ -27,8 +27,8 @@
       (let* ((t0 (get-internal-real-time))
              (compiled (worm.codegen:compile-model model :params params))
              (build (/ (- (get-internal-real-time) t0) internal-time-units-per-second 1d0))
-             (r (worm.runtime:benchmark-step compiled :steps 2000 :h (if (string= params "agar-a-v1") 1d-3 1d-4)))
-             (oracle (oracle-step-ms params :muscles muscles :h (if (string= params "agar-a-v1") 1d-3 1d-4))))
+             (r (worm.runtime:benchmark-step compiled :steps 2000 :h (if (string= params "agar-a-v1") 1d-3 5d-4)))
+             (oracle (oracle-step-ms params :muscles muscles :h (if (string= params "agar-a-v1") 1d-3 5d-4))))
         (setf r (append r (list :params params :build-seconds build :oracle-step-ms oracle)))
         (push r results)
         (format t "~&~(~A~), ~A: шаг ~,2F мс (ручная модель ~,2F), сборка ~,1F с~%  доли, мс: ~{~(~A~) ~,3F~^, ~}~%  ~,3F с модели за секунду счёта~%"

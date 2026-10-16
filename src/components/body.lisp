@@ -81,3 +81,38 @@
             (active activation))
   :documentation "Усреднённая мышца: τ_Ca·dCa/dt = Ca∞(I) − Ca, a = hill(Ca), натяжение F_max·a·f_L(λ)·f_V(λ̄̇);
 τ_v·dλ̄̇/dt = λ̇ − λ̄̇. Длина λ = Σwℓ/Σwℓ₀ по прикреплённым рёбрам.")
+
+;;; Уровень 2: проприоцептивная цепь (бинарная модель Бойла, Берри и Коэна 2012)
+
+(define-component stretch-receptor
+  :family :long-edge
+  :outputs ((bend-strain (* 0.5 side radius-factor (- (/ edge-length rest-length) 1))))
+  :documentation "Рецептор растяжения: изгибная часть относительного удлинения продольного ребра —
+полуразность дорсальной и вентральной сторон после суммирования по полю, приведённая к толщине тела
+множителем R_max/R. Общее укорочение тела при сокращении мышц в неё не входит (параметры, «Уровень 2»).")
+
+(define-component b-unit
+  :family :prop-unit
+  :params (avb-dorsal avb-ventral sr-gain-base sr-gain-slope sr-scale dorsal-stretch-gain dorsal-compress-gain
+           b-threshold hysteresis vd-inhibition sr-filter)
+  :state ((sense 0))
+  :discrete ((db 0) (vb 0))
+  :inputs ((bend (link :stretch)))
+  :derivs ((sense (/ (- bend sense) sr-filter)))
+  :let ((g (* sr-scale (+ sr-gain-base (* sr-gain-slope index))))
+        (sd (- (* dorsal-stretch-gain (positive sense))
+               (* dorsal-compress-gain (positive (- sense)))))
+        (i-db (+ avb-dorsal (* g sd)))
+        (i-vb (- (- avb-ventral (* g sense)) (* vd-inhibition db)))
+        (on (* b-threshold (+ 1 hysteresis)))
+        (off (* b-threshold (- 1 hysteresis))))
+  :events (((- i-db on) :rising (set db 1))
+           ((- i-db off) :falling (set db 0))
+           ((- i-vb on) :rising (set vb 1))
+           ((- i-vb off) :falling (set vb 0)))
+  :outputs ((motor (- db vb)))
+  :documentation "Проприоцептивная единица: дорсальный и вентральный B-нейроны с порогом и гистерезисом.
+Вход — AVB и растяжение своей стороны при изгибе в рецептивном поле (дорсальное — bend,
+вентральное — −bend), сглаженное с постоянной τ_sr (передача сигнала рецептора); VD, возбуждаемый DB,
+тормозит VB. Выход db − vb: мышцы своей стороны получают его со знаком стороны —
+B возбуждает свою сторону, D (через B противоположной стороны) тормозит.")

@@ -15,6 +15,6 @@
    #:compile-model #:+codegen-version+
    #:model-layout #:model-layout-param-names #:model-param-vector
    #:model-layout-state-offsets #:model-layout-neural-states
-   #:model-instance-of #:model-activations #:model-param-names #:model-initial-state #:model-medium #:model-neural-states #:model-notes #:model-forms
+   #:model-instance-of #:model-activations #:model-param-names #:model-initial-state #:model-medium #:model-neural-states #:model-discrete-states #:model-notes #:model-forms
    #:show-kernel #:interpret-kernel #:generated-form
    #:*cache-directory*))

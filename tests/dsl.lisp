@@ -99,7 +99,7 @@
            (n (length y))
            (kl (worm.core:compiled-model-lower-band oracle))
            (ab (worm.core:make-band n kl kl)))
-      (funcall (worm.core:compiled-model-mech-matrix oracle) y (worm.core:make-dvec 95)
+      (funcall (worm.core:compiled-model-mech-matrix oracle) y (worm.core:make-dvec 0) (worm.core:make-dvec 95)
                (worm.oracle:body-pvec body) (worm.core:dvec-from '(0 0 0)) ab)
       (let ((b (band-to-dense ab n kl kl))
             (d (worm.dsl:interpret-damping model y))

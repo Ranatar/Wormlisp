@@ -433,8 +433,8 @@ PRESTRESS — p₀ в мкН/мм² вместо значения набора. 
                                       (pref p :meniscus-force) g))
                     (values))
                   :mech-matrix
-                  (lambda (y syn p clock ab)
-                    (declare (type dvec y syn p clock ab))
+                  (lambda (y aux syn p clock ab)
+                    (declare (type dvec y aux syn p clock ab) (ignore aux))
                     (let ((h (aref clock +clock-h+)))
                       (fill-tension syn p)
                       (loop for f in families for (a b rest k eta) in family-data

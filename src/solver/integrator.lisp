@@ -277,7 +277,7 @@ STEP — номер шага, с которого продолжается пр�
          (output (compiled-model-neural-output model)))
     (when discrete
       (setf (integrator-phase it) :neural-discrete)
-      (funcall (the function discrete) obs z p clock))
+      (funcall (the function discrete) yn obs z p clock))
     (when rhs
       (let ((n (integrator-n-neural it))
             (jac (integrator-jac it))
@@ -326,7 +326,7 @@ STEP — номер шага, с которого продолжается пр�
     (declare (type fixnum n kl ku))
     (setf (integrator-phase it) :mech-matrix)
     (fill ab 0d0)
-    (funcall (the function (compiled-model-mech-matrix model)) y syn p (integrator-clock it) ab)
+    (funcall (the function (compiled-model-mech-matrix model)) y (integrator-aux it) syn p (integrator-clock it) ab)
     (setf (integrator-phase it) :mech-forces)
     (fill g 0d0)
     (funcall (the function (compiled-model-mech-forces model)) y syn p g)

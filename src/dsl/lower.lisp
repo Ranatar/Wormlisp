@@ -87,6 +87,8 @@
                    (cond ((string= name "EDGE-VECTOR") ev)
                          ((string= name "EDGE-LENGTH") (vnorm ev))
                          ((string= name "REST-LENGTH") (leaf :element :rest-length))
+                         ((string= name "SIDE") (leaf :element :side))
+                         ((string= name "RADIUS-FACTOR") (leaf :element :radius-factor))
                          ((string= name "LENGTH-RATE")
                           (vdot (vunit ev) (v- (slot-rate env :b) (slot-rate env :a)))))))
                 ((eq family :compartment)
@@ -117,7 +119,10 @@
                           (vunit (v- next prev))))))
                 ((eq family :muscle)
                  (cond ((string= name "POSITION") (leaf :element :position))
-                       ((string= name "SIDE") (leaf :element :side)))))))))
+                       ((string= name "SIDE") (leaf :element :side))))
+                ((eq family :prop-unit)
+                 (cond ((string= name "POSITION") (leaf :element :position))
+                       ((string= name "INDEX") (leaf :element :index)))))))))
 
 (defun geometry-name-p (env symbol)
   (member (symbol-name symbol) (family-geometry (lenv-family env)) :key #'symbol-name :test #'string=))
@@ -228,13 +233,15 @@
   state-inits    ; ((состояние . узел) …)
   checks         ; ((причина . узел) …) — сбой, если значение отрицательно
   gradients      ; ((скаляр коэффициент номера-сил) …) — силы вида k·∂S/∂x из :gradient
-  output-deps)   ; ((выход . (входы …)) …) — от каких входов выход зависит мгновенно
+  output-deps    ; ((выход . (входы …)) …) — от каких входов выход зависит мгновенно
+  events)        ; ((:rising|:falling переменная условие значение) …)
 
 (defun kernel-roots (kernel)
   "Все корни ядра для вычислителя."
   (append (mapcar #'cdr (kernel-outputs kernel))
           (mapcar #'third (kernel-forces kernel))
-          (mapcar #'cdr (kernel-derivs kernel))))
+          (mapcar #'cdr (kernel-derivs kernel))
+          (loop for (nil nil c v) in (kernel-events kernel) append (list c v))))
 
 (defun kernel-leaves (kernel)
   "Ключи всех переменных ядра, в печатном порядке."
@@ -291,12 +298,27 @@
                 (inits (loop for (name form) in (component-state component)
                              collect (cons name (let ((*form* form)) (need-scalar (lower form) "начальное значение")))))
                 (checks (loop for (cause form) in (component-checks component)
-                              collect (cons cause (let ((*form* form)) (need-scalar (lower form) "проверка"))))))
+                              collect (cons cause (let ((*form* form)) (need-scalar (lower form) "проверка")))))
+                (events (lower-events component #'lower)))
             (make-kernel :component component :instance instance :family family :ring-nodes ring-nodes
                          :graph graph :outputs outputs :derivs derivs :forces forces :damping damping
-                         :state-inits inits :checks checks :gradients (reverse *gradients*)
+                         :state-inits inits :checks checks :gradients (reverse *gradients*) :events events
                          :output-deps (loop for (name . node) in outputs
                                             collect (cons name (input-dependencies node)))))))))))
+
+(defun lower-events (component lower)
+  "События: (<условие> :rising|:falling (set <дискретная переменная> <значение>)).
+Проверяются на границе шага: :rising — когда условие > 0, :falling — когда < 0."
+  (loop for e in (component-events component)
+        collect (let ((*form* e))
+                  (destructuring-bind (condition direction action) e
+                    (unless (and (consp action) (= (length action) 3) (name-is (first action) "SET")
+                                 (symbolp (second action))
+                                 (assoc (kw (second action)) (component-discrete component)))
+                      (dsl-error 'dsl-syntax-error "действие события — (set <дискретная переменная> <значение>)"))
+                    (list direction (kw (second action))
+                          (need-scalar (funcall lower condition) "условие события")
+                          (need-scalar (funcall lower (third action)) "значение события"))))))
 
 (defun lower-forces (env component lower)
   (let ((family (lenv-family env)) (out '()) (count 0))

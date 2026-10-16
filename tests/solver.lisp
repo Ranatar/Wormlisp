@@ -275,7 +275,7 @@
              (worm.core:make-compiled-model
               :name 'singular :n-mech 2 :lower-band 1 :upper-band 1
               :mech-forces (lambda (y syn p g) (declare (ignore y syn p g)))
-              :mech-matrix (lambda (y syn p clock ab) (declare (ignore y syn p clock ab))))
+              :mech-matrix (lambda (y aux syn p clock ab) (declare (ignore y aux syn p clock ab))))
              :h 1d-3)))
     (handler-case (progn (worm.solver:run-steps it 1) (fail "вырожденная матрица прошла"))
       (worm.solver:numerical-blowup (c)
@@ -358,8 +358,8 @@
      (incf (aref g 0) (+ (- (aref y 0)) (* (aref p 0) (aref syn 0))))
      (values))
    :mech-matrix
-   (lambda (y syn p clock ab)
-     (declare (type worm.core:dvec y syn p clock ab) (ignore y syn p))
+   (lambda (y aux syn p clock ab)
+     (declare (type worm.core:dvec y aux syn p clock ab) (ignore y aux syn p))
      (incf (aref ab (worm.core:band-index 0 0 0 0)) (+ 1d0 (aref clock worm.core:+clock-h+)))
      (values))))
 

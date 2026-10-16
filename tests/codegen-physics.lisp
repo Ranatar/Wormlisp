@@ -6,11 +6,11 @@
 ;;;; совпадают до округления, поэтому совпадают и метрики походки этапов 3
 ;;;; и 5, проверенные в tests/physics.lisp.
 ;;;;
-;;;; Вода — с h = 1·10⁻⁴. При h ≥ 2,5·10⁻⁴ вода (и с мышцами, и с
-;;;; натяжением) усиливает ошибку округления: две ручные модели, разошедшиеся
-;;;; на 10⁻¹² мм, к t ≈ 0,5 с расходятся на 10⁻⁴–10⁻² мм, а сгенерированная
-;;;; модель при 5·10⁻⁴ в одном из таких расхождений сминает отсек. При
-;;;; 1·10⁻⁴ расхождение остаётся 10⁻¹¹ (план, этап 7, находки).
+;;;; Сверка идёт без производной вязких сил по положению в матрице шага
+;;;; (решение 26): у ручных ядер её нет. Вода при этом — с h = 1·10⁻⁴: без
+;;;; поправки при h ≥ 2,5·10⁻⁴ ошибка округления растёт до 10⁻⁴–10⁻² мм
+;;;; (этап 7, находки; причина найдена на этапе 10). Последний тест — та же
+;;;; вода с поправкой при 5·10⁻⁴.
 
 (in-package #:worm.tests)
 
@@ -20,7 +20,7 @@
   "Наибольшее расхождение y-mech (мм) и y-neural сгенерированной и ручной
 моделей за TIME секунд с шагом H."
   (let* ((gen (worm.codegen:compile-model (if muscles 'worm.components:worm-3d 'worm.components:worm-3d-kinematic)
-                                          :params params))
+                                          :params params :damping-geometry nil))
          (a (worm.oracle:make-body-integrator (oracle-like params :rings 50 :muscles muscles) :h h))
          (b (worm.runtime:make-model-integrator gen :h h))
          (worst 0d0) (worst-neural 0d0))
@@ -44,3 +44,18 @@
     (multiple-value-bind (y yn) (lockstep-divergence "water-v1" :muscles muscles :h 1d-4 :time 0.6d0)
       (is (< y 1d-9) "вода, ~:[натяжение~;мышцы~]: траектории разошлись на ~,2E мм" muscles y)
       (is (< yn 1d-9) "вода: нервно-мышечная часть разошлась на ~,2E" yn))))
+
+(test water-is-stable-with-damping-geometry
+  ;; Решение 26: без производной вязких сил по положению вода при
+  ;; h ≥ 2,5·10⁻⁴ усиливала ошибку округления до 10⁻⁴ мм; с ней две копии
+  ;; прогона, разошедшиеся на 10⁻¹² мм, остаются рядом и при h = 5·10⁻⁴.
+  (dolist (model '(worm.components:worm-3d-kinematic worm.components:worm-3d))
+    (let* ((gen (worm.codegen:compile-model model :params "water-v1"))
+           (a (worm.runtime:make-model-integrator gen :h 5d-4))
+           (b (worm.runtime:make-model-integrator gen :h 5d-4))
+           (worst 0d0))
+      (incf (aref (worm.solver:integrator-y-mech b) 601) 1d-12)
+      (loop repeat 24
+            do (worm.solver:run-steps a 100) (worm.solver:run-steps b 100)
+               (setf worst (max worst (max-diff (worm.solver:integrator-y-mech a) (worm.solver:integrator-y-mech b)))))
+      (is (< worst 1d-9) "~(~A~): расхождение ~,2E мм за 1,2 с" model worst))))

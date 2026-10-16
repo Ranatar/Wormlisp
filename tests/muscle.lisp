@@ -80,8 +80,8 @@
      :neural-jacobian (worm.core:compiled-model-neural-jacobian m)
      :neural-output (worm.core:compiled-model-neural-output m)
      :mech-forces (lambda (yy syn p g) (declare (ignore yy syn p g)) (values))
-     :mech-matrix (lambda (yy syn p clock ab)
-                    (declare (ignore yy syn p clock))
+     :mech-matrix (lambda (yy aux syn p clock ab)
+                    (declare (ignore yy aux syn p clock))
                     (incf (aref ab (worm.core:band-index 0 0 0 0)) 1d0)
                     (values)))))
 

@@ -12,11 +12,10 @@
 (defun make-model-integrator (model &key params (h 1d-4) (neural-every 10) (checkpoint-every 1000))
   "Интегратор для модели, собранной WORM.CODEGEN:COMPILE-MODEL, из её
 начального состояния."
-  (let ((layout (compiled-model-layout model)))
+  (multiple-value-bind (y0 yn0 z0) (worm.codegen:model-initial-state model)
     (worm.solver:make-integrator model
                                  :params (worm.codegen:model-param-vector model params)
-                                 :y-mech (worm.codegen::model-layout-y0 layout)
-                                 :y-neural (worm.codegen::model-layout-yn0 layout)
+                                 :y-mech y0 :y-neural yn0 :z z0
                                  :h h :neural-every neural-every :checkpoint-every checkpoint-every)))
 
 (defun seconds-of (fn count)
@@ -53,9 +52,9 @@
                (jacobian (seconds-of (call (compiled-model-neural-jacobian model) yn obs z p clock jac) calls))
                (output (seconds-of (call (compiled-model-neural-output model) yn obs z p clock syn) calls))
                (forces (seconds-of (call (compiled-model-mech-forces model) y syn p g) calls))
-               (matrix (seconds-of (call (compiled-model-mech-matrix model) y syn p clock ab) calls))
+               (matrix (seconds-of (call (compiled-model-mech-matrix model) y aux syn p clock ab) calls))
                (lu (let ((ab0 (make-band n kl ku)) (g0 (make-dvec n)))
-                     (funcall (compiled-model-mech-matrix model) y syn p clock ab0)
+                     (funcall (compiled-model-mech-matrix model) y aux syn p clock ab0)
                      (funcall (compiled-model-mech-forces model) y syn p g0)
                      (seconds-of (lambda ()
                                    (replace ab ab0) (replace g g0)

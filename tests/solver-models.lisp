@@ -36,8 +36,8 @@
              (incf (aref g i) (* (- k) (- (* 2d0 (aref y i)) left right))))))
        (values))
      :mech-matrix
-     (lambda (y syn p clock ab)
-       (declare (type worm.core:dvec y syn p clock ab) (ignore y syn) (optimize speed))
+     (lambda (y aux syn p clock ab)
+       (declare (type worm.core:dvec y aux syn p clock ab) (ignore y aux syn) (optimize speed))
        (let ((c (aref p 0)) (eta (aref p 1)) (k (aref p 2))
              (h (aref clock worm.core:+clock-h+)))
          ;; B − h·∂G/∂y = c·I + (η + h·k)·L
@@ -80,8 +80,8 @@
        (incf (aref g 1) (- (aref y 1))))
      (values))
    :mech-matrix
-   (lambda (y syn p clock ab)
-     (declare (type worm.core:dvec y syn p clock ab) (ignore y syn) (optimize speed))
+   (lambda (y aux syn p clock ab)
+     (declare (type worm.core:dvec y aux syn p clock ab) (ignore y aux syn) (optimize speed))
      (let ((l1 (aref p 0)) (h (aref clock worm.core:+clock-h+)))
        (incf (aref ab (worm.core:band-index 0 0 1 1)) (+ 1d0 (* h l1)))
        (incf (aref ab (worm.core:band-index 0 1 1 1)) (- (* h l1)))
@@ -113,8 +113,8 @@ mech-matrix делит ноль на ноль, и срабатывает лов�
                  (- (aref y 0))))
        (values))
      :mech-matrix
-     (lambda (y syn p clock ab)
-       (declare (type worm.core:dvec y syn p clock ab) (ignore y syn p))
+     (lambda (y aux syn p clock ab)
+       (declare (type worm.core:dvec y aux syn p clock ab) (ignore y aux syn p))
        (let ((h (aref clock worm.core:+clock-h+)))
          (incf (aref ab 0) (+ 1d0 h))
          (when (and trap-above-h (> h trap-above-h))
@@ -139,8 +139,8 @@ mech-matrix делит ноль на ноль, и срабатывает лов�
      (incf (aref obs 0) (aref y 0))
      (values))
    :neural-discrete
-   (lambda (obs z p clock)
-     (declare (type worm.core:dvec obs z p clock) (ignore clock))
+   (lambda (yn obs z p clock)
+     (declare (type worm.core:dvec yn obs z p clock) (ignore yn clock))
      (setf (aref z 0) (if (> (aref obs 0) (aref p 2)) 1d0 0d0))
      (values))
    :neural-rhs
@@ -166,8 +166,8 @@ mech-matrix делит ноль на ноль, и срабатывает лов�
      (incf (aref g 0) (+ (- (* (aref p 1) (aref y 0))) (aref syn 0)))
      (values))
    :mech-matrix
-   (lambda (y syn p clock ab)
-     (declare (type worm.core:dvec y syn p clock ab) (ignore y syn))
+   (lambda (y aux syn p clock ab)
+     (declare (type worm.core:dvec y aux syn p clock ab) (ignore y aux syn))
      (incf (aref ab 0) (+ 1d0 (* (aref clock worm.core:+clock-h+) (aref p 1))))
      (values))))
 

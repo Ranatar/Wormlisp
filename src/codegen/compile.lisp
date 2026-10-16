@@ -16,7 +16,7 @@
 
 (in-package #:worm.codegen)
 
-(defparameter +codegen-version+ 2)
+(defparameter +codegen-version+ 4)
 
 (defvar *units* nil "Единицы собираемой модели — для сведения входов.")
 (defvar *relations* nil "Связи собираемой модели: ((провод . csr) …).")
@@ -28,11 +28,13 @@
   outputs        ; ((порт . символ буфера) …) — выходы, у которых есть связи
   inputs         ; ((порт . источник) …): (:obs off-sym) (:syn off-sym) (:buffer sym) (:default число)
   states         ; ((переменная . off-sym) …)
+  discretes      ; ((дискретная переменная . off-sym) …) — смещения в z
   syms)          ; ((ключ . символ) …) — поэлементные массивы и величины
 
 (defstruct (model-layout (:copier nil))
   instance units param-names param-defaults neural-states obs-blocks syn-blocks
   y0 yn0 kl ku notes forms medium
+  discrete-states z0     ; раскладка z: ((экземпляр переменная смещение число) …) и начальные значения
   activation)            ; (yn obs z p clock out) — активации мышц для кадров или NIL
 
 (defun running-name (r) (worm.dsl::instance-name (worm.dsl::running-instance r)))
@@ -69,7 +71,8 @@
                                        collect (cons (list :array name) (env-add env (dvec-from v) :dvec)))))))
          (param-names (sort (remove-duplicates (loop for r in runnings append (mapcar #'car (worm.dsl::running-params r))))
                             #'string< :key #'symbol-name))
-         (obs-size 0) (syn-size 0) (obs-blocks '()) (syn-blocks '()) (state-offset 0) (neural-states '()))
+         (obs-size 0) (syn-size 0) (obs-blocks '()) (syn-blocks '()) (state-offset 0) (neural-states '())
+         (discrete-offset 0) (discrete-states '()))
     (flet ((unit-named (name) (find name units :key #'unit-name)))
       ;; выходы со связями — в буферы
       (loop for (w) in relations
@@ -123,12 +126,22 @@
         (when (and (unit-mech-p u) (worm.dsl::running-states (unit-running u)))
           (error 'codegen-error :message (format nil "у экземпляра механики ~(~A~) есть состояние: механика — только координаты узлов" (unit-name u))))
         (when (worm.dsl::running-discrete (unit-running u))
-          (error 'codegen-error :message (format nil "дискретное состояние ~(~A~) — этап 10" (unit-name u))))))
+          (when (unit-mech-p u)
+            (error 'codegen-error :message (format nil "у экземпляра механики ~(~A~) есть дискретное состояние" (unit-name u))))
+          (loop for (var . init) in (worm.dsl::running-discrete (unit-running u))
+                do (push (cons var (env-add env discrete-offset :fixnum)) (unit-discretes u))
+                   (push (list (unit-name u) var discrete-offset (unit-count u) init) discrete-states)
+                   (incf discrete-offset (unit-count u))))))
     (values units param-names
             (make-model-layout
              :param-names (coerce param-names 'vector)
              :param-defaults (map 'dvec (lambda (n) (float (worm.params:param-value set n) 0d0)) param-names)
              :neural-states (nreverse neural-states)
+             :discrete-states (mapcar #'butlast (reverse discrete-states))
+             :z0 (let ((z (make-dvec discrete-offset)))
+                   (loop for (nil nil off count init) in discrete-states
+                         do (replace z init :start1 off :end1 (+ off count)))
+                   z)
              :obs-blocks (nreverse obs-blocks) :syn-blocks (nreverse syn-blocks))
             obs-size syn-size state-offset)))
 
@@ -151,7 +164,9 @@
                   (:syn `(aref syn (+ ,(second src) e))))))
       (:time 'time)
       (:vel (error 'codegen-error :message "скорость узлов в силе: она входит только в :damping"))
-      (:discrete (error 'codegen-error :message "дискретное состояние — этап 10")))))
+      (:discrete `(aref z (+ ,(or (cdr (assoc (second key) (unit-discretes u)))
+                                  (error 'codegen-error :message (format nil "нет дискретной переменной ~(~A~)" (second key))))
+                             e))))))
 
 (defun slot-index (u slot)
   (if (integerp slot) slot (position slot (worm.dsl::family-slots (unit-family u) 0))))
@@ -303,6 +318,23 @@ SCRATCH и FORCE-HESSIAN — готовый рабочий массив и об�
                                                                            (+ ,(cdr (assoc wrt (unit-states u))) e))
                                                                      ,f)))))))))
 
+(defun neural-discrete-body (neural param-names)
+  "События на границе шага: условия и значения всех событий элемента
+вычисляются по z до применения, затем применяются по порядку."
+  (append
+   (neural-pass neural param-names nil)
+   (loop for u in neural
+         for events = (worm.dsl::kernel-events (kernel-of u))
+         when events
+           append (append (internal-aggregations u)
+                          (list (element-loop u (loop for (nil nil c v) in events append (list c v)) param-names
+                                              (lambda (forms)
+                                                (loop for (direction var) in events
+                                                      for (c v) on forms by #'cddr
+                                                      collect `(when (,(if (eq direction :rising) '> '<) ,c 0d0)
+                                                                 (setf (aref z (+ ,(cdr (assoc var (unit-discretes u))) e))
+                                                                       ,(if (numberp v) (float v 0d0) v)))))))))))
+
 (defun neural-output-body (neural param-names)
   (append
    (neural-pass neural param-names nil :ports-fn (lambda (u) (wired-ports u :any)))
@@ -380,6 +412,33 @@ SCRATCH и FORCE-HESSIAN — готовый рабочий массив и об�
                           (loop for v in (worm.dsl::velocity-leaves rate)
                                 collect (cons (rest (worm.ir:var-key v)) (worm.ir:derivative rate v))))))))
 
+(defvar *damping-geometry* t
+  "Добавлять ли в матрицу шага производную вязких сил по положению при
+скорости прошлого шага (решение 26). NIL — как у ручных ядер этапов 3 и 5.")
+
+(defun damping-geometry-entries (u)
+  "Поправка матрицы шага от поворота вязких сил: C = ∂(B(y)v)/∂y при v = aux.
+Член вязкости c·r даёт силу c·r·∂r/∂v на каждую скорость; r линейна по
+скоростям, r = Σ g_k·v_k, поэтому при скоростях прошлого шага
+f_i = c·(Σ g_k·aux_k)·g_i, и C_ij = ∂f_i/∂y_j. Записи — как у якобиана:
+((строка-слот c столбец-слот d узел) …)."
+  (when *damping-geometry*
+    (let ((kernel (kernel-of u)))
+      (worm.ir:with-graph ((worm.dsl::kernel-graph kernel))
+        (loop for (coef grads) in (damping-entries u)
+              for r-aux = (apply #'worm.ir:ir+ (loop for ((slot c) . g) in grads
+                                                     collect (worm.ir:ir* g (worm.ir:var (list :aux slot c)))))
+              append (loop for ((slot c) . g) in grads
+                           for f = (worm.ir:ir* coef r-aux g)
+                           append (let ((leaves (remove-duplicates
+                                                 (remove-if-not (lambda (k) (eq (first k) :pos))
+                                                                (mapcar #'worm.ir:var-key
+                                                                        (remove-if-not #'worm.ir:var-p (reachable-nodes (list f)))))
+                                                 :test #'equal)))
+                                    (loop for (nil s d) in (sort leaves #'string< :key (lambda (k) (format nil "~S" k)))
+                                          for dv = (worm.ir:derivative f (worm.ir:var (list :pos s d)))
+                                          unless (worm.ir:zero-p dv) collect (list slot c s d dv)))))))))
+
 (defun scatter-map (u entries index-fn)
   "Карта индексов: для элемента e и записи m — INDEX-FN строки и столбца."
   (let* ((slots (worm.dsl::running-slots (unit-running u)))
@@ -397,11 +456,12 @@ SCRATCH и FORCE-HESSIAN — готовый рабочий массив и об�
   "Записи якобиана и вязкости всех единиц механики и фактическая ширина ленты."
   (let ((kl 0) (ku 0) (plans '()))
     (dolist (u mech)
-      (let ((jac (jacobian-entries u)) (damp (damping-entries u)) (slots (worm.dsl::running-slots (unit-running u))))
+      (let ((jac (jacobian-entries u)) (damp (damping-entries u)) (geo (damping-geometry-entries u))
+            (slots (worm.dsl::running-slots (unit-running u))))
         (when slots
           (dotimes (e (unit-count u))
             (let ((nodes (aref slots e)))
-              (dolist (j jac)
+              (dolist (j (append jac geo))
                 (destructuring-bind (rs c ss d node) j
                   (declare (ignore node))
                   (let ((row (global-index u nodes rs c)) (col (global-index u nodes ss d)))
@@ -419,14 +479,32 @@ SCRATCH и FORCE-HESSIAN — готовый рабочий массив и об�
                      (lo (* 3 (loop for j below m minimize (aref nodes j))))
                      (hi (+ 2 (* 3 (loop for j below m maximize (aref nodes j))))))
                 (setf kl (max kl (- hi lo)) ku (max ku (- hi lo)))))))
-        (push (list u jac damp) plans)))
+        (push (list u jac damp geo) plans)))
     (values (nreverse plans) kl ku)))
 
+(defun entries-loop (u entries param-names kl ku factor)
+  "Цикл по элементам: записи (строка-слот c столбец-слот d узел) в ленту с
+множителем FACTOR (форма)."
+  (let ((map (env-add *env* (scatter-map u entries (lambda (nodes entry)
+                                                     (destructuring-bind (rs c ss d node) entry
+                                                       (declare (ignore node))
+                                                       (band-index (global-index u nodes rs c)
+                                                                   (global-index u nodes ss d) kl ku))))
+                      :ivec))
+        (m (length entries)))
+    (element-loop u (mapcar #'fifth entries) param-names
+                  (lambda (forms)
+                    (loop for f in forms for k from 0
+                          collect `(incf (aref ab (aref ,map (+ (* e ,m) ,k))) (* ,factor ,f))))
+                  :geometry (list *env*))))
+
 (defun mech-matrix-body (plans param-names kl ku)
-  (loop for (u jac damp) in plans
-        when (or jac damp (structured-gradients u))
+  (loop for (u jac damp geo) in plans
+        when (or jac damp geo (structured-gradients u))
           append (append
                   (internal-aggregations u)
+                  ;; h·C: поворот вязких сил при скоростях прошлого шага
+                  (when geo (list (entries-loop u geo param-names kl ku '(- mh))))
                   (when jac
                     (let ((map (env-add *env* (scatter-map u jac (lambda (nodes entry)
                                                                    (destructuring-bind (rs c ss d node) entry
@@ -532,8 +610,9 @@ SCRATCH и FORCE-HESSIAN — готовый рабочий массив и об�
   (or *cache-directory* (merge-pathnames "cache/codegen/" (project-root))))
 
 (defun cache-key (spec ring-nodes medium)
-  (worm.platform:md5-hex (format nil "~A ~D ~A ~D ~A ~A" (worm.dsl:model-spec-hash spec) ring-nodes medium
-                                 +codegen-version+ (lisp-implementation-type) (lisp-implementation-version))))
+  (worm.platform:md5-hex (format nil "~A ~D ~A ~D ~A ~A~:[ без поворота вязкости~;~]" (worm.dsl:model-spec-hash spec) ring-nodes medium
+                                 +codegen-version+ (lisp-implementation-type) (lisp-implementation-version)
+                                 *damping-geometry*)))
 
 (defun compile-factories (forms key cache)
   "Фабрики функций модели: ((имя . фабрика) …) и заметки оптимизатора. При
@@ -584,7 +663,8 @@ CACHE текст пишется в cache/codegen/<ключ>.lisp и компил
       (let ((lowest (loop for k below kk minimize (aref coords (+ (* 3 (+ (* i kk) k)) 2)))))
         (dotimes (k kk) (decf (aref out (+ (* 3 (+ (* i kk) k)) 2)) lowest))))))
 
-(defun compile-model (spec &key (params "water-v1") medium rings ring-nodes element-arrays cache)
+(defun compile-model (spec &key (params "water-v1") medium rings ring-nodes element-arrays cache
+                                (damping-geometry t))
   "compiled-model по SPEC (model-spec или имя модели). Остальные ключи — как
 у WORM.DSL:INSTANTIATE; CACHE — брать скомпилированный код из кэша fasl.
 Раскладка, начальное состояние, параметры и заметки оптимизатора — в
@@ -597,15 +677,18 @@ COMPILED-MODEL-LAYOUT."
          (kk (worm.topology:tube-ring-nodes topology))
          (n-mech (worm.dsl::model-instance-n-mech model))
          (*env* (make-env-plan))
+         (*damping-geometry* damping-geometry)
          (notes (list '())))
     (multiple-value-bind (units param-names layout obs-size syn-size n-neural) (plan-model model *env* set)
       (let* ((*units* units)
              (*relations* (worm.dsl::model-instance-relations model))
              (mech (remove-if-not #'unit-mech-p units))
              (neural (remove-if #'unit-mech-p units))
-             (aux-p (some (lambda (u) (some (lambda (k) (eq (first k) :aux))
-                                            (worm.dsl::kernel-leaves (kernel-of u))))
-                          units)))
+             (aux-p (or (some (lambda (u) (some (lambda (k) (eq (first k) :aux))
+                                                (worm.dsl::kernel-leaves (kernel-of u))))
+                              units)
+                        (and *damping-geometry*
+                             (some (lambda (u) (and (unit-mech-p u) (worm.dsl::kernel-damping (kernel-of u)))) units)))))
         ;; источники связей внутри нервно-мышечной части не должны зависеть от
         ;; состояния: иначе нужен якобиан через связи (этап 12)
         (dolist (u neural)
@@ -626,6 +709,11 @@ COMPILED-MODEL-LAYOUT."
                           (factory-form *env* '(y aux p obs) '((type dvec y aux p obs) (ignorable y aux p obs))
                                         `((let ((time 0d0)) (declare (ignorable time))
                                             ,@(observables-body mech neural param-names))
+                                          (values))))
+                    (cons :neural-discrete
+                          (factory-form *env* '(yn obs z p clock) '((type dvec yn obs z p clock) (ignorable yn obs z p clock))
+                                        `((let ((time (aref clock ,+clock-time+))) (declare (ignorable time))
+                                            ,@(neural-discrete-body neural param-names))
                                           (values))))
                     (cons :neural-rhs
                           (factory-form *env* '(yn obs z p clock f) '((type dvec yn obs z p clock f) (ignorable yn obs z p clock f))
@@ -651,9 +739,9 @@ COMPILED-MODEL-LAYOUT."
                                             ,@(mech-forces-body mech param-names))
                                           (values))))
                     (cons :mech-matrix
-                          (factory-form *env* '(y syn p clock ab) '((type dvec y syn p clock ab) (ignorable y syn p clock ab))
-                                        `((let ((time 0d0) (aux y) (mh (- (aref clock ,+clock-h+))))
-                                            (declare (ignorable time aux) (type double-float mh))
+                          (factory-form *env* '(y aux syn p clock ab) '((type dvec y aux syn p clock ab) (ignorable y aux syn p clock ab))
+                                        `((let ((time 0d0) (mh (- (aref clock ,+clock-h+))))
+                                            (declare (ignorable time) (type double-float mh))
                                             ,@(mech-matrix-body plans param-names kl ku))
                                           (values))))
                     (cons :check-state
@@ -701,10 +789,13 @@ COMPILED-MODEL-LAYOUT."
             (flet ((fn (name) (cdr (assoc name functions))))
               (make-compiled-model
                :name (worm.dsl:model-spec-name spec) :hash (worm.dsl:model-spec-hash spec) :layout layout
-               :n-mech n-mech :n-neural n-neural :n-discrete 0 :n-observables obs-size :n-syn syn-size
+               :n-mech n-mech :n-neural n-neural
+               :n-discrete (length (model-layout-z0 layout)) :n-observables obs-size :n-syn syn-size
                :n-aux (if aux-p n-mech 0) :lower-band kl :upper-band ku
                :topology topology :anatomy (worm.dsl::model-instance-anatomy model)
                :observables (and (plusp obs-size) (fn :observables))
+               :neural-discrete (and (some (lambda (u) (worm.dsl::kernel-events (kernel-of u))) neural)
+                                     (fn :neural-discrete))
                :neural-rhs (and (plusp n-neural) (fn :neural-rhs))
                :neural-jacobian (and (plusp n-neural) (fn :neural-jacobian))
                :neural-output (and (plusp syn-size) (fn :neural-output))
@@ -734,9 +825,14 @@ COMPILED-MODEL-LAYOUT."
   (model-layout-param-names (compiled-model-layout compiled)))
 
 (defun model-initial-state (compiled)
-  "Начальные y-mech и y-neural (копии)."
+  "Начальные y-mech, y-neural и z (копии)."
   (let ((layout (compiled-model-layout compiled)))
-    (values (copy-seq (model-layout-y0 layout)) (copy-seq (model-layout-yn0 layout)))))
+    (values (copy-seq (model-layout-y0 layout)) (copy-seq (model-layout-yn0 layout))
+            (copy-seq (model-layout-z0 layout)))))
+
+(defun model-discrete-states (compiled)
+  "Раскладка z: ((экземпляр переменная смещение число) …)."
+  (model-layout-discrete-states (compiled-model-layout compiled)))
 
 (defun model-medium (compiled) (model-layout-medium (compiled-model-layout compiled)))
 

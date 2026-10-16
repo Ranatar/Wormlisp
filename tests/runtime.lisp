@@ -28,9 +28,9 @@
     dir))
 
 (defmacro with-test-run ((var name &rest keys &key (model '(runtime-model)) &allow-other-keys) &body body)
-  `(let ((,var (worm.runtime:start-run ,model :params "agar-a-v1" :dt 1d-3 :paused t
-                                              :directory (runtime-dir ,name)
-                                              ,@(alexandria:remove-from-plist keys :model))))
+  `(let ((,var (worm.runtime:start-run ,model ,@(alexandria:remove-from-plist keys :model)
+                                              :params "agar-a-v1" :dt 1d-3 :paused t
+                                              :directory (runtime-dir ,name))))
      (unwind-protect (progn ,@body)
        (ignore-errors (worm.runtime:stop-run ,var)))))
 
@@ -224,8 +224,9 @@
   "NaN в координате: шаг падает на недопустимой операции."
   (worm.runtime:call-in-run
    (lambda (r) (setf (aref (worm.solver:integrator-y-mech (worm.runtime:run-integrator r)) 40)
-                     (worm.platform:with-float-traps-masked ()
-                       (- sb-ext:double-float-positive-infinity sb-ext:double-float-positive-infinity))))
+                     (let ((inf sb-ext:double-float-positive-infinity))
+                       (declare (notinline -))
+                       (worm.platform:with-float-traps-masked () (- inf inf)))))
    run))
 
 (test nan-failure-waits-for-a-choice-too
@@ -326,3 +327,10 @@
            (is (> (worm.runtime:snapshot-step (worm.runtime:snapshot run)) s1) "счёт идёт")
            (is (eq :running (worm.runtime:run-status run))))
       (worm.runtime:stop-run run))))
+
+(test memory-checkpoints-are-a-multiple-of-the-neural-interval
+  ;; 0,05 с при h = 2·10⁻³ — 25 шагов; интервал округляется до кратного R = 10
+  (with-test-run (run "checkpoint-q" :dt 2d-3)
+    (worm.runtime:step-run 60 run)
+    (is (every (lambda (s) (zerop (mod s 10)))
+               (worm.runtime:call-in-run (lambda (r) (worm.solver:checkpoint-steps (worm.runtime:run-integrator r))) run)))))

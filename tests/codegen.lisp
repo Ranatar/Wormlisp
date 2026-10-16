@@ -16,11 +16,13 @@
 
 (defvar *generated* (make-hash-table :test 'equal))
 
-(defun generated (model params &key (rings 10))
-  (let ((key (list model params rings)))
+(defun generated (model params &key (rings 10) (damping-geometry nil))
+  "Модель на языке модели. По умолчанию — без поворота вязких сил в матрице
+шага (решение 26), как у ручных ядер, с которыми её сверяют."
+  (let ((key (list model params rings damping-geometry)))
     (or (gethash key *generated*)
         (setf (gethash key *generated*)
-              (worm.codegen:compile-model model :params params :rings rings)))))
+              (worm.codegen:compile-model model :params params :rings rings :damping-geometry damping-geometry)))))
 
 (defun oracle-like (params &key (rings 10) muscles)
   "Ручная модель с теми же параметрами, что модель на языке модели."
@@ -117,8 +119,8 @@
         (let* ((okl (worm.core:compiled-model-lower-band oracle))
                (gkl (worm.core:compiled-model-lower-band gen)) (gku (worm.core:compiled-model-upper-band gen))
                (oab (worm.core:make-band n okl okl)) (gab (worm.core:make-band n gkl gku)))
-          (funcall (worm.core:compiled-model-mech-matrix oracle) y osyn op clock oab)
-          (funcall (worm.core:compiled-model-mech-matrix gen) y gsyn p clock gab)
+          (funcall (worm.core:compiled-model-mech-matrix oracle) y aux osyn op clock oab)
+          (funcall (worm.core:compiled-model-mech-matrix gen) y aux gsyn p clock gab)
           (let ((od (band-to-dense oab n okl okl)) (gd (band-to-dense gab n gkl gku)))
             (push (list :matrix (/ (max-diff (sb-ext:array-storage-vector od) (sb-ext:array-storage-vector gd))
                                    (max-abs (sb-ext:array-storage-vector od)))
@@ -182,7 +184,7 @@
     (loop for i from 2 below n by 3 do (when (< (abs (aref y i)) 1d-4) (decf (aref y i) 3d-4)))
     (flet ((matrix (h)
              (let ((ab (worm.core:make-band n kl ku)))
-               (funcall (worm.core:compiled-model-mech-matrix gen) y syn p (worm.core:dvec-from (list 0 h 0)) ab)
+               (funcall (worm.core:compiled-model-mech-matrix gen) y (worm.core:make-dvec (length y)) syn p (worm.core:dvec-from (list 0 h 0)) ab)
                (band-to-dense ab n kl ku)))
            (forces (yy) (let ((g (worm.core:make-dvec n)))
                           (funcall (worm.core:compiled-model-mech-forces gen) yy syn p g) g)))
@@ -227,3 +229,40 @@
     (multiple-value-bind (cause where) (funcall (worm.core:compiled-model-check-state gen) y p)
       (is (eq :volume-collapse cause))
       (is (member where '(1 2 3))))))
+
+(test damping-geometry-matches-finite-differences
+  ;; Решение 26: поправка матрицы шага C = ∂(B(y)v)/∂y при v = aux. Она равна
+  ;; разности матриц шага с поправкой и без, делённой на h, и сверяется с
+  ;; центральными разностями матрицы вязкости интерпретатора, умноженной на v.
+  (let* ((corrected (generated 'worm.components:worm-3d "agar-a-v1" :rings 6 :damping-geometry t))
+         (plain (generated 'worm.components:worm-3d "agar-a-v1" :rings 6))
+         (model (worm.codegen:model-instance-of plain))
+         (p (worm.codegen:model-param-vector plain))
+         (y (perturbed (copy-seq (worm.codegen::model-layout-y0 (worm.core:compiled-model-layout plain))) 21 0.003d0))
+         (n (length y))
+         (v (let ((state (sb-ext:seed-random-state 22)) (w (worm.core:make-dvec n)))
+              (dotimes (i n w) (setf (aref w i) (- (random 0.6d0 state) 0.3d0)))))
+         (syn (worm.core:make-dvec (worm.core:compiled-model-n-syn plain)))
+         (kl (worm.core:compiled-model-lower-band plain)) (ku (worm.core:compiled-model-upper-band plain))
+         (h 1d-3) (eps 1d-6))
+    (is (= kl (worm.core:compiled-model-lower-band corrected)) "поправка не расширяет ленту")
+    (is (= n (worm.core:compiled-model-n-aux corrected)) "модели с поправкой нужны скорости прошлого шага")
+    (flet ((matrix (gen)
+             (let ((ab (worm.core:make-band n kl ku)))
+               (funcall (worm.core:compiled-model-mech-matrix gen) y v syn p (worm.core:dvec-from (list 0 h 0)) ab)
+               (band-to-dense ab n kl ku)))
+           (damping-times-v (yy)
+             (let ((d (worm.dsl:interpret-damping model yy)) (out (worm.core:make-dvec n)))
+               (dotimes (i n out)
+                 (setf (aref out i) (loop for j below n sum (* (aref d i j) (aref v j))))))))
+      (let ((a1 (matrix corrected)) (a0 (matrix plain)) (worst 0d0) (scale 0d0))
+        (dotimes (k n)
+          (let ((yp (copy-seq y)) (ym (copy-seq y)))
+            (incf (aref yp k) eps) (decf (aref ym k) eps)
+            (let ((fp (damping-times-v yp)) (fm (damping-times-v ym)))
+              (dotimes (i n)
+                (let ((fd (/ (- (aref fp i) (aref fm i)) (* 2 eps)))
+                      (an (/ (- (aref a1 i k) (aref a0 i k)) h)))
+                  (setf scale (max scale (abs fd)) worst (max worst (abs (- fd an)))))))))
+        (is (> scale 1d-3) "поправка заметна: ~,2E" scale)
+        (is (< (/ worst scale) 1d-6) "поправка против разностей: ~,2E" (/ worst scale))))))
