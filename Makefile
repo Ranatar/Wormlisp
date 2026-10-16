@@ -1,6 +1,6 @@
 # Wormlisp — цели сборки и проверки.
 #   make test       быстрые тесты (уровни 1-3 и быстрая часть 5)
-#   make test-full  все тесты; пока совпадает с test
+#   make test-full  все тесты, включая физику тела и среды (около минуты)
 #   make image      образ worm-image.core для REPL и рабочих процессов
 #   make repl       REPL в tmux с сервером на порту 8740 (scripts/repl.sh)
 #   make clean      удалить образ и журналы
@@ -13,7 +13,8 @@ LISP  = $(SBCL) --noinform --non-interactive --no-sysinit --no-userinit --load s
 test:
 	$(LISP) --load scripts/run-tests.lisp
 
-test-full: test
+test-full:
+	WORM_FULL=1 $(LISP) --load scripts/run-tests.lisp
 
 image:
 	$(LISP) --load scripts/build-image.lisp

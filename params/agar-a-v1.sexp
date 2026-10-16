@@ -7,4 +7,5 @@
   (c-t   3.2     :uN*s/mm^2 :level :estimate :source "Niebur-Erdos 1991, fit to ~1 mm/s")
   (c-n   128     :uN*s/mm^2 :level :estimate :source "Boyle 2012, K=40 after Berri 2009")
   (contact t)
-  (meniscus-force 400 :uN/mm :level :estimate :bounds (350 900) :source "Rabets 2014, agar 1.7%"))
+  (meniscus-force 400 :uN/mm :level :estimate :bounds (350 900) :source "Rabets 2014, agar 1.7%")
+  (contact-stiffness 1e5 :uN/mm :level :numeric :source "проникновение под f_m меньше 1% радиуса"))

@@ -69,3 +69,5 @@
 (define-parameter c-n            :unit :uN*s/mm^2 :bounds (0 1d6) :doc "Нормальное сопротивление на единицу длины.")
 (define-parameter contact        :kind :boolean :live nil :doc "Контакт с поверхностью (агар).")
 (define-parameter meniscus-force :unit :uN/mm :bounds (0 1d5) :doc "Прижимающая сила мениска f_m.")
+(define-parameter contact-stiffness :unit :uN/mm :bounds (0 1d9)
+  :doc "Жёсткость штрафа проникновения в поверхность k_s (численная).")

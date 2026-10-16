@@ -5,5 +5,11 @@
 (def-suite worm :description "Все тесты Wormlisp.")
 
 (defun run-all ()
-  "Прогнать все тесты; T, если всё прошло."
+  "Быстрые тесты (make test); T, если всё прошло."
   (run! 'worm))
+
+(defun run-full ()
+  "Все тесты, включая физику тела и среды (make test-full); T, если всё прошло."
+  (let ((quick (run! 'worm))
+        (physics (run! 'physics)))
+    (and quick physics)))

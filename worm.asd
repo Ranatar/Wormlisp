@@ -130,9 +130,18 @@
   :components ((:file "package"))
   :in-order-to ((test-op (test-op "worm/tests"))))
 
+(defsystem "worm/oracle"
+  :description "Ручные ядра тела и среды (этап 3): эталон для кодогенерации."
+  :depends-on ("worm/solver" "worm/topology" "worm/anatomy" "worm/params")
+  :pathname "tests/oracle/"
+  :serial t
+  :components ((:file "package")
+               (:file "kernels")
+               (:file "body")))
+
 (defsystem "worm/tests"
   :description "Тесты проекта (FiveAM)."
-  :depends-on ("worm" "fiveam" "usocket")
+  :depends-on ("worm" "worm/oracle" "fiveam" "usocket")
   :pathname "tests/"
   :components ((:file "package")
                (:file "suite" :depends-on ("package"))
@@ -144,5 +153,7 @@
                (:file "anatomy" :depends-on ("suite"))
                (:file "solver-models" :depends-on ("suite"))
                (:file "solver" :depends-on ("solver-models"))
+               (:file "body" :depends-on ("suite"))
+               (:file "physics" :depends-on ("body"))
                (:file "server" :depends-on ("suite")))
   :perform (test-op (o c) (uiop:symbol-call :worm.tests :run-all)))
