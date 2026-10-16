@@ -14,11 +14,20 @@
   (or run *current-run* (error 'run-error :message "прогона нет: сначала (start-run …)")))
 
 (defun send (run op &rest args)
-  "Отправить команду и вернуть обещание."
+  "Отправить команду и вернуть обещание. У прогона без потока (пакетный
+рабочий) команда выполняется сразу в вызывающем потоке, а :step считается
+до конца здесь же; :resume без потока не имеет смысла."
   (let ((promise (make-promise)))
     (when (and (run-finished-p run) (not (eq op :call)))
       (error 'run-error :message (format nil "прогон ~A завершён (~(~A~))" (run-id run) (run-status run))))
-    (worm.platform:mailbox-send (run-mailbox run) (list* op promise args))
+    (if (run-thread run)
+        (worm.platform:mailbox-send (run-mailbox run) (list* op promise args))
+        (progn
+          (when (eq op :resume)
+            (error 'run-error :message "у прогона без потока нет непрерывного счёта: (step-run n)"))
+          (handle-command run (list* op promise args))
+          (let ((policy (or (run-policy-fn run) (setf (run-policy-fn run) (step-policy run)))))
+            (loop while (run-active-p run) do (run-chunk run policy)))))
     promise))
 
 (defun post-command (run op &rest args)
@@ -47,13 +56,15 @@
 (defun start-run (model &key (params "water-v1") medium rings (dt 1d-4) record
                              (frames-every 0.01d0) (snapshot-every 0.01d0) (checkpoint-every 0)
                              (memory-checkpoint-every 0.05d0) (neural-every 10)
-                             (policy :interactive) id directory paused)
+                             (policy :interactive) id directory paused (thread t))
   "Запустить прогон: MODEL — compiled-model или имя модели (тогда она
 собирается с PARAMS и MEDIUM). Интервалы записи, снимков и контрольных
 точек — в секундах модели; CHECKPOINT-EVERY — точки на диск (0 — только по
 команде), MEMORY-CHECKPOINT-EVERY — кольцо в памяти для rollback. POLICY —
-:interactive (пауза и решение человека), :batch или функция от условия."
-  (let* ((set (worm.params:load-param-set params))
+:interactive (пауза и решение человека), :batch или функция от условия.
+THREAD NIL — без потока симуляции (пакетный рабочий): команды выполняются
+в вызывающем потоке, прогон стоит на паузе между ними."
+  (let* ((set (if (worm.params:param-set-p params) params (worm.params:load-param-set params)))
          (model (if (compiled-model-p model)
                     model
                     (worm.codegen:compile-model model :params set :medium medium :rings rings)))
@@ -82,9 +93,9 @@
     (when record
       (setf (run-record-p run) t)
       (open-writer run))
-    (set-status run (if paused :paused :running))
+    (set-status run (if (or paused (not thread)) :paused :running))
     (publish-snapshot run)
-    (start-simulation-thread run)
+    (when thread (start-simulation-thread run))
     (push run *runs*)
     (setf *current-run* run)))
 
@@ -102,7 +113,8 @@
   "Завершить прогон: закрыть файлы, записать итог в meta.json."
   (let ((run (the-run run)))
     (prog1 (if (run-finished-p run) (run-status run) (command run :stop))
-      (worm.platform:join-thread (run-thread run) :timeout 30))))
+      (when (run-thread run)
+        (worm.platform:join-thread (run-thread run) :timeout 30)))))
 
 (defun wait-run (&key run (status '(:paused :problem :done :failed)) (timeout 60))
   "Дождаться, пока прогон перейдёт в одно из состояний STATUS."
@@ -221,7 +233,7 @@
 перечисляются как требующие пересборки. Возвращает plist
 (:applied ((имя старое новое) …) :needs-rebuild (имя …))."
   (let* ((run (the-run run))
-         (set (worm.params:load-param-set designator))
+         (set (if (worm.params:param-set-p designator) designator (worm.params:load-param-set designator)))
          (old (run-param-set run))
          (model (run-model run))
          (p (worm.solver:integrator-params (run-integrator run)))
@@ -381,7 +393,9 @@
 топология та же, нервно-мышечные переменные — по именам. Параметры — из
 набора PARAMS; без него — прежние значения тех же имён."
   (let* ((run (the-run run))
-         (set (if params (worm.params:load-param-set params) (run-param-set run)))
+         (set (cond ((null params) (run-param-set run))
+                    ((worm.params:param-set-p params) params)
+                    (t (worm.params:load-param-set params))))
          (model (worm.codegen:compile-model model-name :params set
                                                        :medium (or medium (worm.codegen:model-medium (run-model run)))
                                                        :rings (model-rings (run-model run))))
@@ -446,6 +460,12 @@
   (loop for (step name old new source) in (run-param-changes (the-run run))
         for spec = (worm.params:find-parameter name nil)
         collect (list step name (shown-value spec old) (shown-value spec new) source)))
+
+(defun abort-run-with (run reason)
+  "Завершить прогон со статусом failed, записав причину в log.txt (пакетный
+рабочий при ошибке вне шага)."
+  (run-log run "прогон прерван: ~A" reason)
+  (finish-run run :failed))
 
 (defun list-runs ()
   "Прогоны процесса: (id модель состояние шаг)."

@@ -80,6 +80,7 @@
   (problem-cell (worm.platform:make-atomic-cell nil))
   (status :paused)          ; :paused :running :stepping :problem :done :failed (пишет только поток симуляции)
   (policy :interactive)     ; :interactive, :batch или функция от условия
+  policy-fn                 ; функция политики, созданная один раз на прогон
   (steps-left 0)            ; для :step
   step-promise
   directory                 ; каталог прогона

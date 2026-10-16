@@ -22,6 +22,36 @@
             +sc-nprocessors-onln+)))
     (if (plusp n) n 1)))
 
+;;; Файлы и процессы ОС (пакетные прогоны)
+
+(defun rename-directory (from to)
+  "Переименовать каталог FROM в TO одним вызовом rename(2) — атомарно на
+одной файловой системе."
+  (flet ((native (p) (string-right-trim "/" (sb-ext:native-namestring (uiop:ensure-directory-pathname p)))))
+    (multiple-value-bind (ok errno) (sb-unix:unix-rename (native from) (native to))
+      (unless ok
+        (error "переименование ~A → ~A: ~A" (native from) (native to) (sb-int:strerror errno)))
+      to)))
+
+(defun proc-field-kb (path field)
+  "Число в килобайтах из строки «FIELD: N kB» файла /proc."
+  (with-open-file (in path :if-does-not-exist nil)
+    (when in
+      (loop for line = (read-line in nil)
+            while line
+            when (and (> (length line) (length field)) (string= field line :end2 (length field)))
+              return (parse-integer line :start (1+ (length field)) :junk-allowed t)))))
+
+(defun process-peak-megabytes (pid)
+  "Пиковый размер резидентной памяти процесса PID (VmHWM), МБ, или NIL."
+  (let ((kb (proc-field-kb (format nil "/proc/~D/status" pid) "VmHWM")))
+    (and kb (/ kb 1024.0))))
+
+(defun available-megabytes ()
+  "Доступная память системы (MemAvailable), МБ."
+  (let ((kb (proc-field-kb "/proc/meminfo" "MemAvailable")))
+    (if kb (/ kb 1024.0) 0.0)))
+
 ;;; Блокировки. На горячем пути их нет (архитектура, «Потоки»); они нужны
 ;;; журналу и реестрам, которые трогают из REPL и из потоков сервера.
 

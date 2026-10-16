@@ -182,3 +182,32 @@ et al. 2010)."
         (format out "~,4F,~,4F,~@[~,5F~],~@[~,4F~],~@[~,4F~],~@[~,3F~]~%"
                 t0 t1 speed frequency wavelength amplitude)))
     path))
+
+;;; Сводка развёртки (этап 11)
+
+(defun run-gait (dir &key (from 0d0))
+  "Метрики походки прогона в каталоге DIR с момента FROM, с: plist или NIL."
+  (let* ((run (load-run dir))
+         (times (run-data-times run))
+         (start (or (position-if (lambda (x) (>= x from)) times) 0)))
+    (when (> (- (length times) start) 2)
+      (gait-metrics run :from start))))
+
+(defun write-run-metrics (dir &key (window 1d0))
+  "metrics.csv каталога прогона по окнам WINDOW секунд."
+  (write-metrics-csv (worm.io:run-file dir "metrics.csv") (metrics-windows (load-run dir) window)))
+
+(defun write-sweep-summary (path rows)
+  "summary.csv развёртки. ROWS — plist (:id :status :point ((имя значение) …)
+:metrics plist или NIL), у всех строк одни и те же имена точек."
+  (ensure-directories-exist path)
+  (with-open-file (out path :direction :output :if-exists :supersede :if-does-not-exist :create
+                            :external-format :utf-8)
+    (let ((names (mapcar #'first (getf (first rows) :point))))
+      (format out "id,status~{,~(~A~)~},frequency_hz,wavelength_L,curvature_amplitude_kL,speed_mm_s~%" names)
+      (dolist (r rows)
+        (let ((m (getf r :metrics)))
+          (format out "~A,~A~{,~F~},~@[~F~],~@[~F~],~@[~F~],~@[~F~]~%"
+                  (getf r :id) (getf r :status) (mapcar #'second (getf r :point))
+                  (getf m :frequency) (getf m :wavelength) (getf m :amplitude) (getf m :speed))))))
+  path)

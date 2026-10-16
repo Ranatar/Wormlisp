@@ -8,4 +8,6 @@
 (asdf:load-system "worm")
 (let ((core (merge-pathnames "worm-image.core" (uiop:symbol-call :worm.core :project-root))))
   (format t "~&Сохраняю ~A~%" (namestring core))
+  ;; журнал процесса откроется заново в процессе из образа
+  (uiop:symbol-call :worm.core :close-log)
   (sb-ext:save-lisp-and-die core :executable nil))

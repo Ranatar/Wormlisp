@@ -116,3 +116,43 @@
 вентральное — −bend), сглаженное с постоянной τ_sr (передача сигнала рецептора); VD, возбуждаемый DB,
 тормозит VB. Выход db − vb: мышцы своей стороны получают его со знаком стороны —
 B возбуждает свою сторону, D (через B противоположной стороны) тормозит.")
+
+(define-component b-unit-graded
+  :family :prop-unit
+  :params (sr-gain-base sr-gain-slope sr-scale dorsal-stretch-gain dorsal-compress-gain sr-filter
+           gb-c gb-g-mem gb-i-act gb-i-gaba gb-g-avb gb-v-rest gb-v-act gb-v-avb gb-v-nmj
+           gb-k-act gb-k-gaba gb-k-nmj gb-bias-ventral gb-w-ach gb-w-gaba gb-sr-current gb-nmj-scale)
+  :state ((sense 0) (ud 0) (uv (* 2 (- gb-v-act gb-v-rest))))
+  :inputs ((bend (link :stretch)))
+  :let ((g (* gb-sr-current sr-scale (+ sr-gain-base (* sr-gain-slope index))))
+        (sd (- (* dorsal-stretch-gain (positive sense))
+               (* dorsal-compress-gain (positive (- sense)))))
+        (du-act (- gb-v-act gb-v-rest))
+        (du-avb (- gb-v-avb gb-v-rest))
+        (du-nmj (- gb-v-nmj gb-v-rest))
+        (i-d (+ (- (* gb-g-mem ud))
+                (* gb-i-act (logistic (* gb-k-act (- ud du-act))))
+                (* gb-g-avb (- du-avb ud))
+                (* g sd)))
+        (i-v (+ (- (* gb-g-mem uv))
+                (* gb-i-act (logistic (* gb-k-act (- uv du-act))))
+                (* gb-g-avb (- du-avb uv))
+                gb-bias-ventral
+                (- (* g sense))
+                (- (* gb-i-gaba (logistic (* gb-k-gaba ud))))))
+        (nmj-d (logistic (* gb-k-nmj (- ud du-nmj))))
+        (nmj-v (logistic (* gb-k-nmj (- uv du-nmj)))))
+  :derivs ((sense (/ (- bend sense) sr-filter))
+           (ud (/ i-d gb-c))
+           (uv (/ i-v gb-c)))
+  :outputs ((motor (* gb-nmj-scale 0.5 (- gb-w-ach gb-w-gaba) (- nmj-d nmj-v))))
+  :documentation "Проприоцептивная единица, проводимостная версия Бойла (2012, ур. 14–15): мембранные
+потенциалы DB и VB, отсчитанные от покоя (u = V − V_rest), с утечкой, самовозбуждающим током
+I_act·σ(k_act(V − V_act)) (бистабильность), щелевым контактом AVB, током смещения вентральной
+стороны и торможением VB от VD, которое следует за DB: −I_GABA·σ(k_GABA(V_D − V_rest)). Ток рецептора —
+тот же сглаженный сигнал изгиба, что у бинарной версии, в пА: I_sr·s·(a + b·n). Нервно-мышечный
+синапс — сигмоида σ(k_NMJ(V − V₀,NMJ)) с весами w_ACh своей стороны и w_GABA противоположной;
+выход — полуразность входов дорсальных и вентральных мышц, (w_ACh − w_GABA)/2·(σ_D − σ_V), с
+множителем гибкости нервно-мышечного синапса (общая часть обеих сторон отброшена, как у бинарной версии).
+VB начинает в верхнем состоянии, как в бинарной версии: в прямом теле сигнала рецептора нет, а VD
+в покое тормозит VB вполсилы (V₀,GABA = V_rest), и без начального толчка обе стороны остаются в покое.")

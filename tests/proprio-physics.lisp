@@ -55,3 +55,19 @@
         (getf water :frequency) (getf agar :frequency))
     (is (> (getf water :wavelength) (* 1.8d0 (getf agar :wavelength))) "длина волны: вода ~,3F, агар ~,3F"
         (getf water :wavelength) (getf agar :wavelength))))
+
+(test graded-units-crawl-on-agar
+  ;; Проводимостная версия B-нейрона (этап 11): на агаре волна возникает
+  ;; без внешнего ритма, с длиной волны живого червя; частота выше живой.
+  (let* ((dir (runtime-dir "graded-agar"))
+         (model (worm.codegen:compile-model 'worm.components:worm-3d-proprio-graded :params "agar-a-v1"))
+         (run (worm.runtime:start-run model :params "agar-a-v1" :dt 1d-3 :paused t :record t :frames-every 0.01d0
+                                            :directory dir :policy :batch)))
+    (worm.runtime:step-run 9000 run)
+    (worm.runtime:stop-run run)
+    (is (eq :done (worm.runtime:run-status run)))
+    (let* ((r (worm.analysis:load-run dir))
+           (m (worm.analysis:gait-metrics r :from (position-if (lambda (x) (>= x 3d0)) (worm.analysis:run-data-times r)))))
+      (is (< 0.6d0 (or (getf m :frequency) 0) 1.6d0) "частота ~A Гц" (getf m :frequency))
+      (is (< 0.4d0 (or (getf m :wavelength) 0) 0.8d0) "длина волны ~A L" (getf m :wavelength))
+      (is (> (getf m :speed) 0.15d0) "ползёт вперёд: ~,4F мм/с" (getf m :speed)))))

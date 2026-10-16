@@ -263,6 +263,22 @@ REQUIRE — :NONE, :ALL или список имён, которые обяза�
                (hash-table-count (param-set-entries set)) (param-set-hash set))
     set))
 
+(defun derive-param-set (parent name overrides)
+  "Новый набор NAME, наследующий PARENT, с правками OVERRIDES —
+((имя значение [единица]) …); без единицы значение — в единице реестра.
+Так пакетное задание получает набор со своими правками без файла."
+  (let* ((set (make-param-set :name (if (stringp name) (intern (string-upcase name) :keyword) (keyword-of name))
+                              :parent parent :path nil))
+         (table (param-set-entries set)))
+    (maphash (lambda (k v) (setf (gethash k table) v)) (param-set-entries parent))
+    (dolist (o overrides set)
+      (destructuring-bind (pname value &optional unit) o
+        (let* ((key (normalize-name pname))
+               (spec (find-parameter key)))
+          (setf (gethash key table)
+                (make-entry spec (param-set-name set) key value
+                            (or unit (parameter-spec-unit spec)) t nil)))))))
+
 ;;; Доступ
 
 (defun param-entry-of (set name)

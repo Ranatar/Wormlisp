@@ -145,7 +145,11 @@
   :description "Слой 6. Развёртки, оркестратор, рабочие процессы."
   :depends-on ("worm/runtime")
   :pathname "src/batch/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "sweep")
+               (:file "worker")
+               (:file "orchestrator")))
 
 (defsystem "worm/analysis"
   :description "Слой 6. Метрики походки, кимограмма, сводки."
@@ -203,6 +207,7 @@
                (:file "proprio-physics" :depends-on ("proprio" "runtime" "physics"))
                (:file "runtime" :depends-on ("suite"))
                (:file "runtime-repl" :depends-on ("runtime" "physics"))
+               (:file "batch" :depends-on ("runtime" "physics"))
                (:file "io" :depends-on ("suite"))
                (:file "analysis" :depends-on ("io"))
                (:file "server" :depends-on ("runtime"))

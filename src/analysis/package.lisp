@@ -12,4 +12,5 @@
    #:run-data-length #:run-data-times
    #:curvature-series #:centroid-series #:heading-series
    #:gait-metrics #:gait-frequency #:gait-wavelength #:gait-speed #:gait-amplitude
-   #:metrics-windows #:write-metrics-csv))
+   #:metrics-windows #:write-metrics-csv
+   #:run-gait #:write-run-metrics #:write-sweep-summary))

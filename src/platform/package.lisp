@@ -17,6 +17,8 @@
            #:make-thread #:join-thread #:thread-alive-p #:current-thread #:thread-name
            #:make-mailbox #:mailbox-send #:mailbox-receive #:mailbox-receive-no-hang #:mailbox-count
            #:make-semaphore #:signal-semaphore #:wait-on-semaphore
+           ;; файлы и процессы ОС
+           #:rename-directory #:process-peak-megabytes #:available-megabytes
            ;; атомарная ячейка
            #:make-atomic-cell #:atomic-cell-p #:atomic-cell-value
            #:atomic-cell-swap #:atomic-cell-compare-and-swap

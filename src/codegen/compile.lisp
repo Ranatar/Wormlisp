@@ -16,7 +16,7 @@
 
 (in-package #:worm.codegen)
 
-(defparameter +codegen-version+ 4)
+(defparameter +codegen-version+ 5)
 
 (defvar *units* nil "Единицы собираемой модели — для сведения входов.")
 (defvar *relations* nil "Связи собираемой модели: ((провод . csr) …).")
@@ -302,6 +302,7 @@ SCRATCH и FORCE-HESSIAN — готовый рабочий массив и об�
 (defun neural-jacobian-body (neural param-names)
   (append
    (neural-pass neural param-names nil)
+   (coupled-jacobian-body neural param-names)
    (loop for u in neural
          for kernel = (kernel-of u)
          for entries = (worm.ir:with-graph ((worm.dsl::kernel-graph kernel))
@@ -317,6 +318,85 @@ SCRATCH и FORCE-HESSIAN — готовый рабочий массив и об�
                                                       collect `(incf (aref jac (+ ,(cdr (assoc var (unit-states u))) e)
                                                                            (+ ,(cdr (assoc wrt (unit-states u))) e))
                                                                      ,f)))))))))
+
+;;; Якобиан через связи: вход PORT единицы U сведён из выхода источника,
+;;; который зависит от состояния источника. По цепному правилу
+;;;   ∂f_u(e)/∂x_src(s) = ∂f_u/∂in(e) · w(e, s) · ∂out_src/∂x_src(s).
+;;; Производные выходов источников считаются поэлементно в буферы, затем
+;;; для каждого элемента приёмника обходятся связи его строки CSR.
+
+(defun state-dependent-input-p (u port)
+  "Вход PORT единицы U идёт из буфера выхода, зависящего от состояния источника."
+  (let ((src (cdr (assoc port (unit-inputs u)))))
+    (when (eq (first src) :buffer)
+      (let* ((w (third src))
+             (src-unit (find (worm.dsl::wire-src-instance w) *units* :key #'unit-name))
+             (node (cdr (assoc (worm.dsl::wire-src-port w) (worm.dsl::kernel-outputs (kernel-of src-unit))))))
+        (worm.ir:with-graph ((worm.dsl::kernel-graph (kernel-of src-unit)))
+          (some (lambda (k) (eq (first k) :state))
+                (mapcar #'worm.ir:var-key (remove-if-not #'worm.ir:var-p (reachable-nodes (list node))))))))))
+
+(defun coupled-jacobian-body (neural param-names)
+  (let ((output-derivs (make-hash-table :test 'equal)) ; (источник порт состояние) → буфер
+        (forms '()))
+    ;; производные выходов источников по их состояниям
+    (dolist (u neural)
+      (loop for (port . src) in (unit-inputs u)
+            when (state-dependent-input-p u port)
+              do (let* ((w (third src))
+                        (su (find (worm.dsl::wire-src-instance w) *units* :key #'unit-name))
+                        (sport (worm.dsl::wire-src-port w))
+                        (kernel (kernel-of su))
+                        (node (cdr (assoc sport (worm.dsl::kernel-outputs kernel))))
+                        (entries (worm.ir:with-graph ((worm.dsl::kernel-graph kernel))
+                                   (loop for (wrt) in (unit-states su)
+                                         for d = (worm.ir:derivative node (worm.ir:var (list :state wrt)))
+                                         unless (or (worm.ir:zero-p d) (gethash (list (unit-name su) sport wrt) output-derivs))
+                                           collect (list wrt d)))))
+                   (when entries
+                     (dolist (en entries)
+                       (setf (gethash (list (unit-name su) sport (first en)) output-derivs)
+                             (env-add *env* (make-dvec (unit-count su)) :dvec)))
+                     (push (append (internal-aggregations su)
+                                   (list (element-loop su (mapcar #'second entries) param-names
+                                                       (lambda (fs)
+                                                         (loop for (wrt) in entries for f in fs
+                                                               collect `(setf (aref ,(gethash (list (unit-name su) sport wrt) output-derivs) e) ,f))))))
+                           forms)))))
+    (setf forms (apply #'append (nreverse forms)))
+    ;; производные приёмников по входам и сборка по связям
+    (append
+     forms
+     (loop for u in neural
+           for kernel = (kernel-of u)
+           for ports = (loop for (port) in (unit-inputs u) when (state-dependent-input-p u port) collect port)
+           for entries = (when ports
+                           (worm.ir:with-graph ((worm.dsl::kernel-graph kernel))
+                             (loop for (var . node) in (worm.dsl::kernel-derivs kernel)
+                                   append (loop for port in ports
+                                                for d = (worm.ir:derivative node (worm.ir:var (list :input port)))
+                                                unless (worm.ir:zero-p d) collect (list var port d)))))
+           when entries
+             append (append
+                     (internal-aggregations u)
+                     (list (element-loop
+                            u (mapcar #'third entries) param-names
+                            (lambda (fs)
+                              (loop for (var port) in entries for f in fs
+                                    append (destructuring-bind (kind sym w (off srcs ws)) (cdr (assoc port (unit-inputs u)))
+                                             (declare (ignore kind sym))
+                                             (let* ((su (find (worm.dsl::wire-src-instance w) *units* :key #'unit-name))
+                                                    (sport (worm.dsl::wire-src-port w))
+                                                    (row `(+ ,(cdr (assoc var (unit-states u))) e)))
+                                               (loop for (wrt . off-sym) in (unit-states su)
+                                                     for buf = (gethash (list (unit-name su) sport wrt) output-derivs)
+                                                     when buf
+                                                       collect `(let ((dfdin ,f))
+                                                                  (declare (type double-float dfdin))
+                                                                  (loop for q of-type fixnum from (aref ,off e) below (aref ,off (1+ e))
+                                                                        for s of-type fixnum = (aref ,srcs q)
+                                                                        do (incf (aref jac ,row (+ ,off-sym s))
+                                                                                 (* dfdin (aref ,ws q) (aref ,buf s)))))))))))))))))
 
 (defun neural-discrete-body (neural param-names)
   "События на границе шага: условия и значения всех событий элемента
@@ -689,19 +769,6 @@ COMPILED-MODEL-LAYOUT."
                               units)
                         (and *damping-geometry*
                              (some (lambda (u) (and (unit-mech-p u) (worm.dsl::kernel-damping (kernel-of u)))) units)))))
-        ;; источники связей внутри нервно-мышечной части не должны зависеть от
-        ;; состояния: иначе нужен якобиан через связи (этап 12)
-        (dolist (u neural)
-          (loop for (port . src) in (unit-inputs u)
-                when (eq (first src) :buffer)
-                  do (let* ((w (third src))
-                            (src-unit (find (worm.dsl::wire-src-instance w) units :key #'unit-name))
-                            (node (cdr (assoc (worm.dsl::wire-src-port w) (worm.dsl::kernel-outputs (kernel-of src-unit))))))
-                       (when (some (lambda (k) (eq (first k) :state))
-                                   (worm.ir:with-graph ((worm.dsl::kernel-graph (kernel-of src-unit)))
-                                     (mapcar #'worm.ir:var-key (remove-if-not #'worm.ir:var-p (reachable-nodes (list node))))))
-                         (error 'codegen-error :message (format nil "вход ~(~A.~A~) зависит от состояния ~(~A~): якобиан через связи — этап 12"
-                                                                (unit-name u) port (unit-name src-unit)))))))
         (multiple-value-bind (plans kl ku) (mech-matrix-plan mech)
           (let* ((forms
                    (list

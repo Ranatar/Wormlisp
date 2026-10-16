@@ -22,7 +22,8 @@
   (merge-pathnames "log/worm.log" (project-root)))
 
 (defun ensure-log-stream ()
-  (or *log-stream*
+  ;; поток мог закрыть save-lisp-and-die при сборке образа
+  (or (and *log-stream* (open-stream-p *log-stream*) *log-stream*)
       (let ((path (log-path)))
         (ensure-directories-exist path)
         (setf *log-stream* (open path :direction :output :if-exists :append

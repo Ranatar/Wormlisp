@@ -22,7 +22,7 @@
    #:param-set-entries #:param-set-hash #:param-set-canonical-text
    #:param-entry #:param-entry-name #:param-entry-value #:param-entry-unit
    #:param-entry-level #:param-entry-bounds #:param-entry-source #:param-entry-set
-   #:load-param-set #:read-param-set #:*params-directory*
+   #:load-param-set #:read-param-set #:*params-directory* #:derive-param-set
    #:param-value #:param-entry-of #:param-names #:missing-parameters
    #:require-params
    ;; условия

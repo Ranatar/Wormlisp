@@ -22,5 +22,5 @@
    #:rebuild
    ;; для сервера
    #:post-command #:find-run #:prepare-param-change #:run-parameters #:run-description
-   #:run-param-change-log #:*runs*
+   #:run-param-change-log #:*runs* #:abort-run-with
    #:run-error #:run-timeout))
