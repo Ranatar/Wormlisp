@@ -74,6 +74,15 @@
     (is (< (abs (- (getf m :wavelength) 0.8d0)) 0.02d0) "длина волны ~,4F L" (getf m :wavelength))
     (is (< (abs (- (getf m :speed) 0.2d0)) 0.01d0) "скорость вперёд ~,4F мм/с" (getf m :speed))
     (is (< (abs (- (getf m :amplitude) 6d0)) 0.3d0) "размах |κ|·L ~,3F" (getf m :amplitude))
+    ;; скорость волны λ·f·L = 0,8·1,5 = 1,2 мм/с; доля 0,2/1,2; амплитуда
+    ;; синтетической волны одна по всему телу
+    (is (< (abs (- (getf m :wave-speed) 1.2d0)) 0.03d0) "скорость волны ~,4F мм/с" (getf m :wave-speed))
+    (is (< (abs (- (getf m :slip) (/ 0.2d0 1.2d0))) 0.01d0) "доля скорости волны ~,4F" (getf m :slip))
+    (is (= 5 (length (getf m :curvature-profile))))
+    ;; у концов кривизна колец считается по укороченной окрестности и ниже
+    (is (every (lambda (x) (< (abs (- x 6d0)) 0.4d0)) (subseq (getf m :curvature-profile) 1 4))
+        "профиль κ·L ~S" (getf m :curvature-profile))
+    (is (every (lambda (x) (< 4d0 x 6.4d0)) (getf m :curvature-profile)))
     ;; знак кривизны: в момент t = 0 на s = λ/4 изгиб дорсальный (κ > 0)
     (let ((i (round (* 0.2d0 49))))
       (is (plusp (aref curv 0 i)) "кривизна дорсального изгиба положительна: ~,3F" (aref curv 0 i)))))
@@ -88,7 +97,7 @@
           (first w) (second w) (getf (cddr w) :frequency)))
     (worm.analysis:write-metrics-csv path windows)
     (with-open-file (in path)
-      (is (string= "t_start_s,t_end_s,speed_mm_s,frequency_hz,wavelength_L,curvature_amplitude_kL"
+      (is (string= "t_start_s,t_end_s,speed_mm_s,frequency_hz,wavelength_L,curvature_amplitude_kL,wave_speed_mm_s,slip,kL_1,kL_2,kL_3,kL_4,kL_5"
                    (read-line in)))
       (is (= 4 (loop while (read-line in nil) count t))))))
 

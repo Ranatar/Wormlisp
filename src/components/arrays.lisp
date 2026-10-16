@@ -175,4 +175,4 @@ g·s_eq·Σ_j c_ij(V_i − E_j) = 0, а V_th = V_eq − ln(φ_r/(1 − φ_r))/β
       (map 'dvec (lambda (v) (- v shift)) (solve-dense a b)))))
 
 (define-element-array neuron-threshold :family :neuron :compute #'neuron-threshold
-  :documentation "Порог синаптической сигмоиды нейрона, мВ: потенциал покоя сети при φ = 1/2.")
+  :documentation "Порог синаптической сигмоиды нейрона, мВ: потенциал, при котором в покое сети φ = neuron-rest-activity.")

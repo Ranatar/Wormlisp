@@ -12,7 +12,7 @@
    ;; прогон
    #:run #:run-p #:run-id #:run-model #:run-integrator #:run-status #:run-directory #:run-policy
    #:*current-run* #:list-runs #:build-model #:start-run #:stop-run #:wait-run
-   #:pause #:resume #:step-run #:run-status-of #:call-in-run
+   #:pause #:resume #:step-run #:run-status-of #:call-in-run #:flush-recording
    #:set-param #:param #:load-params
    #:snapshot #:snapshot-p #:snapshot-step #:snapshot-time #:snapshot-h #:snapshot-status
    #:snapshot-coords #:snapshot-activations #:snapshot-curvature #:snapshot-rings #:snapshot-ring-nodes

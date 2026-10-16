@@ -131,6 +131,14 @@ THREAD NIL — без потока симуляции (пакетный рабо
   "Выполнить (FN run) в потоке симуляции на границе шага и вернуть результат."
   (command (the-run run) :call fn))
 
+(defun flush-recording (&optional run)
+  "Сбросить на диск записанные кадры идущего прогона (frames.bin остаётся
+открытым), чтобы их можно было прочитать до конца прогона."
+  (let ((run (the-run run)))
+    (when (run-writer run)
+      (call-in-run (lambda (r) (when (run-writer r) (worm.io:flush-frames-writer (run-writer r)))) run))
+    run))
+
 ;;; Параметры
 
 (defun spec-of (name)

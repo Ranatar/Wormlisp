@@ -140,6 +140,12 @@
 ;;; Хэши. MD5 берётся из contrib sb-md5 и служит для хэшей моделей и
 ;;; наборов параметров в meta.json, а не для защиты.
 
+(defun md5-octets-hex (octets &key (start 0) end)
+  "Шестнадцатеричный MD5 последовательности байтов OCTETS на [START, END)."
+  (with-output-to-string (out)
+    (loop for byte across (sb-md5:md5sum-sequence octets :start start :end end)
+          do (format out "~(~2,'0x~)" byte))))
+
 (defun md5-hex (string)
   "Шестнадцатеричный MD5 строки STRING в кодировке UTF-8."
   (with-output-to-string (out)

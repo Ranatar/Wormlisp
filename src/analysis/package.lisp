@@ -13,4 +13,5 @@
    #:curvature-series #:centroid-series #:heading-series
    #:gait-metrics #:gait-frequency #:gait-wavelength #:gait-speed #:gait-amplitude
    #:metrics-windows #:write-metrics-csv
-   #:run-gait #:write-run-metrics #:write-sweep-summary))
+   #:run-gait #:write-run-metrics #:write-sweep-summary
+   #:wcon-object #:write-wcon))

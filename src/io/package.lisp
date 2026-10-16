@@ -13,7 +13,7 @@
    #:frame-size #:encode-frame #:decode-frame
    #:frame #:frame-p #:frame-step #:frame-time #:frame-coords #:frame-activations #:frame-neurons
    ;; frames.bin
-   #:frames-writer #:open-frames-writer #:write-frame #:close-frames-writer
+   #:frames-writer #:open-frames-writer #:write-frame #:close-frames-writer #:flush-frames-writer
    #:frames-writer-count #:frames-writer-path
    #:frames-file #:read-frames-file #:frames-file-count #:frames-file-nodes
    #:frames-file-muscles #:frames-file-neurons #:frames-file-frame-size #:frame-ref

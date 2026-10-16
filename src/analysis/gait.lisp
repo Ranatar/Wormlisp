@@ -146,19 +146,40 @@ et al. 2010)."
                      collect (loop for k from from below to maximize (abs (aref curv k i))))))
     (and peaks (> to from) (* length (/ (reduce #'+ peaks) (length peaks))))))
 
+(defun curvature-profile (curv from to rings length &optional (parts 5))
+  "Профиль амплитуды кривизны вдоль тела: для каждой из PARTS равных частей
+тела — средний по её кольцам пик |κ| за окно, умноженный на L."
+  (when (> to from)
+    (coerce (loop for p below parts
+                  for lo = (floor (* p rings) parts) for hi = (floor (* (1+ p) rings) parts)
+                  collect (* length (/ (loop for i from lo below hi
+                                             sum (loop for k from from below to maximize (abs (aref curv k i))))
+                                       (max 1 (- hi lo)))))
+            'vector)))
+
 (defun gait-metrics (run &key (from 0) (to (worm.io:frames-file-count (run-data-frames run)))
                               curvature centroids headings)
-  "Метрики походки на кадрах [FROM, TO): plist :speed :frequency :wavelength :amplitude."
+  "Метрики походки на кадрах [FROM, TO): plist :speed :frequency
+:wavelength :amplitude :wave-speed (скорость волны λ·f, мм/с) :slip (доля
+скорости волны, на которую тело продвигается вперёд, — отношение speed к
+wave-speed) :curvature-profile (амплитуда κ·L по пятым частям тела)."
   (let* ((curv (or curvature (curvature-series run)))
          (cents (or centroids (centroid-series run)))
          (heads (or headings (heading-series run)))
          (times (run-data-times run))
          (rings (run-data-rings run))
-         (f (gait-frequency curv times from to rings)))
-    (list :speed (gait-speed cents heads times from to)
+         (len (run-data-length run))
+         (f (gait-frequency curv times from to rings))
+         (lambda-l (gait-wavelength curv times from to rings f))
+         (speed (gait-speed cents heads times from to))
+         (wave (and f lambda-l (* f lambda-l len))))
+    (list :speed speed
           :frequency f
-          :wavelength (gait-wavelength curv times from to rings f)
-          :amplitude (gait-amplitude curv from to rings (run-data-length run)))))
+          :wavelength lambda-l
+          :amplitude (gait-amplitude curv from to rings len)
+          :wave-speed wave
+          :slip (and wave speed (plusp wave) (/ speed wave))
+          :curvature-profile (curvature-profile curv from to rings len))))
 
 (defun metrics-windows (run window)
   "Метрики по окнам длиной WINDOW секунд: список (начало конец . plist)."
@@ -176,11 +197,13 @@ et al. 2010)."
 
 (defun write-metrics-csv (path windows)
   (with-open-file (out path :direction :output :if-exists :supersede :if-does-not-exist :create)
-    (write-line "t_start_s,t_end_s,speed_mm_s,frequency_hz,wavelength_L,curvature_amplitude_kL" out)
+    (write-line "t_start_s,t_end_s,speed_mm_s,frequency_hz,wavelength_L,curvature_amplitude_kL,wave_speed_mm_s,slip,kL_1,kL_2,kL_3,kL_4,kL_5" out)
     (dolist (w windows)
-      (destructuring-bind (t0 t1 &key speed frequency wavelength amplitude) w
-        (format out "~,4F,~,4F,~@[~,5F~],~@[~,4F~],~@[~,4F~],~@[~,3F~]~%"
-                t0 t1 speed frequency wavelength amplitude)))
+      (destructuring-bind (t0 t1 &key speed frequency wavelength amplitude wave-speed slip curvature-profile
+                           &allow-other-keys) w
+        (format out "~,4F,~,4F,~@[~,5F~],~@[~,4F~],~@[~,4F~],~@[~,3F~],~@[~,4F~],~@[~,4F~]~{,~,3F~}~%"
+                t0 t1 speed frequency wavelength amplitude wave-speed slip
+                (if curvature-profile (coerce curvature-profile 'list) '("" "" "" "" "")))))
     path))
 
 ;;; Сводка развёртки (этап 11)

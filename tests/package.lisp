@@ -2,4 +2,4 @@
 
 (defpackage #:worm.tests
   (:use #:cl #:fiveam)
-  (:export #:run-all #:run-full))
+  (:export #:run-all #:run-full #:update-golden))

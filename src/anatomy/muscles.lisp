@@ -93,3 +93,21 @@
     (cond ((or (<= s from) (>= s to)) 0d0)
           ((<= s peak) (/ (- s from) (- peak from)))
           (t (/ (- to s) (- to peak))))))
+
+;;; Нейроны и коннектом (этап 12): чтение и запись — в connectome.lisp.
+
+(defparameter +transmitters+ '(:acetylcholine :gaba))
+
+(defstruct (neuron (:copier nil))
+  (name nil :type keyword :read-only t)
+  (class nil :type keyword :read-only t)
+  (transmitter :acetylcholine :read-only t)
+  (position nil :read-only t)
+  (nmj 0 :read-only t))
+
+(defstruct (connectome (:copier nil))
+  (neurons #() :type simple-vector :read-only t)
+  (chemical #() :type simple-vector :read-only t)   ; #((пре пост контакты) …), номера нейронов
+  (gap #() :type simple-vector :read-only t)        ; #((a b контакты) …), a < b
+  (nmj #() :type simple-vector :read-only t)        ; #((нейрон мышца контакты) …), номер мышцы
+  (source nil :read-only t))                        ; plist формы connectome-source

@@ -234,7 +234,7 @@ flowchart TB
 
 - `worm.codegen`: понижение, локальные якобианы, карты рассеяния, матрица вязкости, эмиссия, компиляция, кэш fasl.
 - `worm.components`: тело, среда, мышцы и управление первого уровня на DSL; модель `worm-3d`.
-- `(show-kernel ...)`, `(interpret-kernel ...)`, `(benchmark-step ...)`, `(profile-run ...)`.
+- `(worm.codegen:show-kernel ...)`, `(worm.codegen:interpret-kernel ...)`, `(benchmark-step ...)`, `(profile-run ...)`.
 
 **Готово, когда:**
 

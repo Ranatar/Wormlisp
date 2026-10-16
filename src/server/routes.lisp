@@ -23,7 +23,8 @@
 (defparameter +run-files+
   '(("meta.json" . "application/json") ("frames.bin" . "application/octet-stream")
     ("metrics.csv" . "text/csv; charset=utf-8") ("config.sexp" . "text/plain; charset=utf-8")
-    ("log.txt" . "text/plain; charset=utf-8") ("status" . "text/plain; charset=utf-8"))
+    ("log.txt" . "text/plain; charset=utf-8") ("status" . "text/plain; charset=utf-8")
+    ("kinematics.wcon" . "application/json"))
   "Файлы каталога прогона, которые сервер отдаёт.")
 
 (defparameter +selftest-files+

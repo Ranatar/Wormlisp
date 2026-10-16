@@ -25,4 +25,4 @@
            ;; плавающая точка
            #:with-float-traps-masked #:enabled-float-traps
            ;; хэши
-           #:md5-hex))
+           #:md5-hex #:md5-octets-hex))

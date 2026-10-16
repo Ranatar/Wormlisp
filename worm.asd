@@ -153,12 +153,13 @@
                (:file "orchestrator")))
 
 (defsystem "worm/analysis"
-  :description "Слой 6. Метрики походки, кимограмма, сводки."
+  :description "Слой 6. Метрики походки, сводки развёрток, экспорт WCON."
   :depends-on ("worm/io" "worm/topology")
   :pathname "src/analysis/"
   :serial t
   :components ((:file "package")
-               (:file "gait")))
+               (:file "gait")
+               (:file "wcon")))
 
 (defsystem "worm"
   :description "Симулятор локомоции C. elegans: фасадный пакет WORM для REPL."
@@ -210,6 +211,8 @@
                (:file "runtime-repl" :depends-on ("runtime" "physics"))
                (:file "batch" :depends-on ("runtime" "physics"))
                (:file "connectome" :depends-on ("runtime" "dsl"))
+               (:file "wcon" :depends-on ("runtime"))
+               (:file "golden" :depends-on ("runtime" "physics"))
                (:file "io" :depends-on ("suite"))
                (:file "analysis" :depends-on ("io"))
                (:file "server" :depends-on ("runtime"))

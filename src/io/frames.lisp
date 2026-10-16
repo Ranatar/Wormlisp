@@ -182,6 +182,18 @@ ACTIVATIONS — m чисел, NEURONS — q чисел или NIL. Возвра�
     (incf (frames-writer-count writer))
     writer))
 
+(defun flush-frames-writer (writer)
+  "Записать текущее число кадров в заголовок и сбросить буфер на диск, не
+закрывая файл: читатель увидит все кадры, записанные к этому моменту."
+  (let ((stream (frames-writer-stream writer)))
+    (when (open-stream-p stream)
+      (let ((end (file-position stream)))
+        (write-file-header stream (frames-writer-n writer) (frames-writer-m writer)
+                           (frames-writer-q writer) (frames-writer-count writer))
+        (file-position stream end))
+      (finish-output stream)))
+  writer)
+
 (defun close-frames-writer (writer)
   "Записать число кадров в заголовок и закрыть файл."
   (let ((stream (frames-writer-stream writer)))

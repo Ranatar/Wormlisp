@@ -13,6 +13,7 @@
            #:serving-p
            #:about
            #:run-sweep
+           #:export-wcon #:export-metrics
            #:build-model #:start-run #:stop-run #:wait-run #:list-runs #:*current-run* #:pause #:resume #:step-run #:call-in-run #:set-param #:param #:load-params #:snapshot #:state-ref #:save-checkpoint #:rollback #:record #:record-to #:problem #:choose #:debug-problem #:rebuild #:benchmark-step #:profile-run))
 
 (in-package #:worm)
@@ -40,6 +41,36 @@
                           :after (lambda (dir job)
                                    (declare (ignore job))
                                    (worm.analysis:write-run-metrics dir))))
+
+(defun export-dir (run)
+  "Каталог прогона RUN (прогон процесса, идентификатор или каталог); у
+идущего прогона записанные кадры сначала сбрасываются на диск."
+  (cond ((worm.runtime:run-p run)
+         (worm.runtime:flush-recording run)
+         (worm.runtime:run-directory run))
+        ((stringp run) (worm.batch:run-directory run))
+        (t (pathname run))))
+
+(defun split-run-argument (args)
+  "Необязательный первый аргумент-прогон и ключи: (values run keys)."
+  (if (and args (not (keywordp (first args))))
+      (values (first args) (rest args))
+      (values *current-run* args)))
+
+(defun export-wcon (&rest args)
+  "(export-wcon [run] :every k) — средняя линия прогона в WCON
+(kinematics.wcon в каталоге прогона), каждый K-й кадр. RUN — прогон
+процесса, идентификатор или каталог прогона; по умолчанию текущий. Путь."
+  (multiple-value-bind (run keys) (split-run-argument args)
+    (destructuring-bind (&key (every 1)) keys
+      (worm.analysis:write-wcon (export-dir run) :every every))))
+
+(defun export-metrics (&rest args)
+  "(export-metrics [run] :window w) — метрики походки по окнам W секунд в
+metrics.csv каталога прогона. RUN — как у EXPORT-WCON. Путь."
+  (multiple-value-bind (run keys) (split-run-argument args)
+    (destructuring-bind (&key (window 1d0)) keys
+      (worm.analysis:write-run-metrics (export-dir run) :window window))))
 
 (defun sweep-summary (result)
   "summary.csv развёртки по итогу ORCHESTRATE; путь."
