@@ -43,6 +43,8 @@
   (syn-width       0.15   nil            :level :fit       :bounds (0.05 0.5))
   ;; уровень 1
   (gen-amplitude   1      nil            :level :fit)
+  (gen-direction   1      nil            :level :numeric)
+  (tension-amplitude 15   :uN            :level :numeric   :source "кинематический вариант мышцы, этап 3")
   ;; уровень 2
   (units           12     nil            :level :estimate  :source "Boyle 2012")
   (rf-length       0.5    nil            :level :estimate  :bounds (0.2 0.5)

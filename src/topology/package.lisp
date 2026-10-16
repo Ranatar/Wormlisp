@@ -21,4 +21,6 @@
    #:node-index #:node-angle #:node-quadrant #:node-row #:+quadrants+
    #:quadrant-nodes #:long-edge-index #:quadrant-long-edges
    ;; геометрия
-   #:compartment-volume #:compartment-volume-derivatives #:frustum-volume #:ring-center #:ring-centers #:ring-curvatures))
+   #:compartment-volume #:compartment-volume-derivatives #:frustum-volume
+   #:volume-scratch #:make-volume-scratch #:volume-scratch-grad #:volume-scratch-hess
+   #:volume-scratch-volume #:compartment-geometry! #:prestress-tensions #:ring-center #:ring-centers #:ring-curvatures))

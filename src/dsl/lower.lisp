@@ -25,6 +25,9 @@
 (in-package #:worm.dsl)
 
 
+;;; Силы из :gradient, собираемые LOWER-FORCES для кодогенерации.
+(defvar *gradients* nil)
+
 ;;; Окружение понижения
 
 (defstruct (lenv (:copier nil))
@@ -101,7 +104,17 @@
                        ((string= name "POSITION") (leaf :element :position))))
                 ((eq family :node)
                  (cond ((string= name "DS") (leaf :element :ds))
-                       ((string= name "POSITION") (leaf :element :position))))
+                       ((string= name "POSITION") (leaf :element :position))
+                       ((string= name "TANGENT")
+                        ;; касательная по центрам соседних колец, как у ручной модели
+                        (let* ((k (lenv-ring-nodes env))
+                               (prev (loop for c below 3
+                                           collect (ir/ (apply #'ir+ (loop for j from 1 to k collect (leaf :pos j c))) k)))
+                               (next (loop for c below 3
+                                           collect (ir/ (apply #'ir+ (loop for j from (1+ k) to (* 2 k)
+                                                                           collect (leaf :pos j c)))
+                                                        k))))
+                          (vunit (v- next prev))))))
                 ((eq family :muscle)
                  (cond ((string= name "POSITION") (leaf :element :position))
                        ((string= name "SIDE") (leaf :element :side)))))))))
@@ -118,7 +131,7 @@
 
 (defparameter +operators+
   '("+" "-" "*" "/" "EXPT" "SQRT" "EXP" "LOG" "TANH" "SIN" "COS" "LOGISTIC" "HILL" "POSITIVE" "CLAMP"
-    "VEC" "DOT" "CROSS" "NORM" "UNIT" "SCALE" "V+" "V-" "POS" "TIME" "LAGGED")
+    "VEC" "DOT" "CROSS" "NORM" "UNIT" "SCALE" "V+" "V-" "POS" "VELOCITY" "TIME" "LAGGED")
   "Операции языка выражений (архитектура, «Язык выражений»).")
 
 (defun lower-expr (env form)
@@ -177,6 +190,12 @@
          (when (and (integerp slot) (>= slot (length (family-slots (lenv-family env) (lenv-ring-nodes env)))))
            (dsl-error 'unknown-name "у семейства ~(~A~) нет слота ~D" (lenv-family env) slot))
          (slot-position slot)))
+      ((string= op "VELOCITY")
+       ;; скорость узла слота: в :damping — скорость шага, внутри lagged — прошлого
+       (let ((slot (slot-designator (lenv-family env) (cons 'pos args))))
+         (unless slot
+           (dsl-error 'unknown-name "у семейства ~(~A~) нет слота ~S" (lenv-family env) (first args)))
+         (slot-rate env slot)))
       ((string= op "TIME") (arity 0) (leaf :time))
       ((string= op "LAGGED") (arity 1)
        (let ((saved (lenv-rate-mode env)))
@@ -207,6 +226,8 @@
   derivs         ; ((состояние . узел) …)
   damping        ; ((коэффициент . скорость) …) — функция Рэлея ½·Σ коэф·скорость²
   state-inits    ; ((состояние . узел) …)
+  checks         ; ((причина . узел) …) — сбой, если значение отрицательно
+  gradients      ; ((скаляр коэффициент номера-сил) …) — силы вида k·∂S/∂x из :gradient
   output-deps)   ; ((выход . (входы …)) …) — от каких входов выход зависит мгновенно
 
 (defun kernel-roots (kernel)
@@ -246,6 +267,7 @@
          (graph (worm.ir:make-graph))
          (env (make-lenv :component component :family family :ring-nodes ring-nodes)))
     (with-location (:component (or instance (component-name component)) :form nil)
+      (let ((*gradients* '()))
       (worm.ir:with-graph (graph)
         (flet ((bind (name value)
                  (setf (gethash name (lenv-bindings env)) value))
@@ -267,15 +289,17 @@
                 (forces (lower-forces env component #'lower))
                 (damping (lower-damping env component #'lower))
                 (inits (loop for (name form) in (component-state component)
-                             collect (cons name (let ((*form* form)) (need-scalar (lower form) "начальное значение"))))))
+                             collect (cons name (let ((*form* form)) (need-scalar (lower form) "начальное значение")))))
+                (checks (loop for (cause form) in (component-checks component)
+                              collect (cons cause (let ((*form* form)) (need-scalar (lower form) "проверка"))))))
             (make-kernel :component component :instance instance :family family :ring-nodes ring-nodes
                          :graph graph :outputs outputs :derivs derivs :forces forces :damping damping
-                         :state-inits inits
+                         :state-inits inits :checks checks :gradients (reverse *gradients*)
                          :output-deps (loop for (name . node) in outputs
-                                            collect (cons name (input-dependencies node))))))))))
+                                            collect (cons name (input-dependencies node)))))))))))
 
 (defun lower-forces (env component lower)
-  (let ((family (lenv-family env)) (out '()))
+  (let ((family (lenv-family env)) (out '()) (count 0))
     (dolist (f (component-forces component) (nreverse out))
       (let ((*form* f))
         (cond
@@ -284,17 +308,20 @@
           ((and (consp f) (eq (first f) :gradient))
            (destructuring-bind (expr &key (scale 1)) (rest f)
              (let ((s (need-scalar (funcall lower expr) ":gradient"))
-                   (k (need-scalar (funcall lower scale) ":scale")))
+                   (k (need-scalar (funcall lower scale) ":scale"))
+                   (indices '()))
                (dolist (slot (family-slots family (lenv-ring-nodes env)))
                  (dotimes (c 3)
                    (let ((d (worm.ir:derivative s (leaf :pos slot c))))
                      (unless (worm.ir:zero-p d)
-                       (push (list slot c (ir* k d)) out))))))))
+                       (push count indices) (incf count)
+                       (push (list slot c (ir* k d)) out)))))
+               (push (list s k (nreverse indices)) *gradients*))))
           ((and (consp f) (= (length f) 2) (slot-designator family (first f)))
            (let ((slot (slot-designator family (first f)))
                  (v (need-vector (funcall lower (second f)) "сила")))
              (loop for c below 3 for node in v
-                   unless (worm.ir:zero-p node) do (push (list slot c node) out))))
+                   unless (worm.ir:zero-p node) do (push (list slot c node) out) (incf count))))
           (t (dsl-error 'dsl-syntax-error "сила задаётся как ((pos <слот>) <вектор>) или (:gradient <скаляр> :scale <к>)")))))))
 
 (defun lower-damping (env component lower)

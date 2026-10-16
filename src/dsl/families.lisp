@@ -10,7 +10,10 @@
 ;;;;   :compartment   слоты 0…2K−1 (переднее кольцо, затем заднее);
 ;;;;                  volume, rest-volume
 ;;;;   :ring          слоты 0…K−1; centroid, ds, rest-radius, position
-;;;;   :node          слот self; ds (доля Δs кольца на узел), position
+;;;;   :node          слот self (0), узлы предыдущего кольца 1…K и следующего
+;;;;                  K+1…2K (у концов — своё кольцо); ds (доля Δs кольца на
+;;;;                  узел), position, tangent (касательная средней линии по
+;;;;                  центрам соседних колец)
 ;;;;   :muscle        без слотов; position (максимум веретена), side (+1 —
 ;;;;                  дорсальная, −1 — вентральная)
 ;;;;   :global        один элемент без слотов
@@ -38,7 +41,7 @@
   (cond ((edge-family-p family) '(edge-vector edge-length length-rate rest-length))
         ((eq family :compartment) '(volume rest-volume))
         ((eq family :ring) '(centroid ds rest-radius position))
-        ((eq family :node) '(ds position))
+        ((eq family :node) '(ds position tangent))
         ((eq family :muscle) '(position side))
         (t '())))
 
@@ -47,7 +50,7 @@
   (cond ((edge-family-p family) '(:a :b))
         ((eq family :compartment) (loop for j below (* 2 ring-nodes) collect j))
         ((eq family :ring) (loop for j below ring-nodes collect j))
-        ((eq family :node) '(:self))
+        ((eq family :node) (loop for j from 0 to (* 2 ring-nodes) collect j))
         (t '())))
 
 (defun slot-designator (family form)
@@ -56,8 +59,8 @@
     (cond ((null name) nil)
           ((and (edge-family-p family) (symbolp name) (member (symbol-name name) '("A" "B") :test #'string=))
            (intern (symbol-name name) :keyword))
-          ((and (eq family :node) (symbolp name) (string= (symbol-name name) "SELF")) :self)
-          ((and (member family '(:compartment :ring)) (integerp name)) name)
+          ((and (eq family :node) (symbolp name) (string= (symbol-name name) "SELF")) 0)
+          ((and (member family '(:compartment :ring :node)) (integerp name)) name)
           (t nil))))
 
 ;;; Отношения :via

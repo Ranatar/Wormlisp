@@ -1,8 +1,10 @@
 ;;;; src/runtime/package.lisp
 ;;;;
-;;;; Объект run, поток симуляции, команды, снимки, API для REPL. Этап 8.
-;;;; Пока заглушка: система существует, чтобы раскладка слоёв
-;;;; проверялась с первого дня.
+;;;; Слой 5. Объект run, поток симуляции, команды, снимки, API для REPL —
+;;;; этап 8. С этапа 7 здесь замеры шага: benchmark-step и profile-run
+;;;; (архитектура, «Производительность и память», «Как мерить»).
 
 (defpackage #:worm.runtime
-  (:use #:cl))
+  (:use #:cl #:worm.core)
+  (:export
+   #:make-model-integrator #:benchmark-step #:profile-run #:write-benchmark))

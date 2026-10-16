@@ -18,8 +18,8 @@
                                               (make-array (getf context :count) :element-type 'double-float
                                                                                 :initial-element 0d0))
                                    :documentation "Пробная модель: значения задаются при сборке.")))))
-  (arrays k-long k-circ k-diag k-diam eta-long eta-circ eta-diag eta-diam
-          t-long t-circ t-diag t-diam))
+  (arrays trial-k-long trial-k-circ trial-k-diag trial-k-diam trial-eta-long trial-eta-circ trial-eta-diag trial-eta-diam
+          trial-t-long trial-t-circ trial-t-diag trial-t-diam))
 
 (worm.dsl:define-component trial-cuticle-edge
   :family :edge
@@ -61,13 +61,13 @@
                   :radius-max radius-max :radius-end-min radius-end-min)
   :anatomy "anatomy/muscles.sexp"
   :components ((cuticle-long trial-cuticle-edge :on :long-edge
-                             :rename (stiffness k-long viscosity eta-long rest-tension t-long))
+                             :rename (stiffness trial-k-long viscosity trial-eta-long rest-tension trial-t-long))
                (cuticle-circ trial-cuticle-edge :on :circ-edge
-                             :rename (stiffness k-circ viscosity eta-circ rest-tension t-circ))
+                             :rename (stiffness trial-k-circ viscosity trial-eta-circ rest-tension trial-t-circ))
                (shear trial-cuticle-edge :on :diagonal
-                      :rename (stiffness k-diag viscosity eta-diag rest-tension t-diag))
+                      :rename (stiffness trial-k-diag viscosity trial-eta-diag rest-tension trial-t-diag))
                (shape trial-cuticle-edge :on :diametral
-                      :rename (stiffness k-diam viscosity eta-diam rest-tension t-diam))
+                      :rename (stiffness trial-k-diam viscosity trial-eta-diam rest-tension trial-t-diam))
                (pressure trial-pressure :on :compartment)
                (drive trial-kinematic-muscle :on :muscle)
                (calcium trial-calcium :on :muscle))

@@ -4,7 +4,7 @@
 тело, мышцы с кальциевой кинетикой, три уровня нервного управления и среда по
 теории резистивных сил.
 
-Сделаны **этапы 0–6**: каркас репозитория, REPL в tmux, проверочная страница
+Сделаны **этапы 0–7**: каркас репозитория, REPL в tmux, проверочная страница
 на порту 8740; нижние слои — типы и условия, журнал, реестр параметров с
 единицами, трубка N × K с величинами покоя и 95 мышц с привязкой к рёбрам;
 решатель — ленточная LU, линейно-неявный шаг с расщеплением, контрольные
@@ -14,7 +14,9 @@
 мышцы с кальциевой кинетикой под генератором ритма, подобранные по кинематике
 живых червей (1,76 Гц и 1,54 L в воде, 0,30 Гц и 0,62 L на агаре); язык
 модели — IR с символьной производной, `define-component` и `defmodel` с
-проверками и эталонным интерпретатором.
+проверками и эталонным интерпретатором; кодогенерация — модель `worm-3d` на
+языке модели собирается в типизированные функции без выделения памяти на
+шаге, с кэшем fasl, и идёт шаг в шаг с ручными ядрами.
 
 ## Окружение
 
@@ -39,7 +41,9 @@ make image    # образ worm-image.core, чтобы REPL стартовал �
 ```
 
 `make test` заканчивается строкой `Fail: 0` и кодом возврата 0. `make test-full`
-добавляет физические тесты тела и среды — около минуты.
+добавляет физические тесты тела и среды и прогоны сгенерированной модели шаг в
+шаг с ручной — около шести минут. `make bench` замеряет шаг и пишет результат
+в `bench/`.
 
 ## Работа
 
@@ -62,6 +66,20 @@ scripts/repl.sh            # подключиться к REPL или запус�
 
 После `git pull` образ пересобирать не обязательно: ASDF сам перекомпилирует
 изменённые файлы при старте. `make image` ускоряет следующий запуск.
+
+## Модель на языке модели
+
+```lisp
+(asdf:load-system "worm/runtime")
+(defvar *m* (worm.codegen:compile-model 'worm.components:worm-3d :params "agar-a-v1"))
+(defvar *it* (worm.runtime:make-model-integrator *m* :h 1d-3))
+(worm.solver:run-steps *it* 1000)                  ; секунда модели, около 5 с
+(worm.codegen:show-kernel *m* 'worm.components::pressure)
+(worm.runtime:benchmark-step *m* :h 1d-3)
+```
+
+Первая сборка — около 3 с, повторная из `cache/codegen/` — доли секунды. В воде
+шаг пока 1·10⁻⁴ (архитектура, «Открытые вопросы»).
 
 ## Проверка из браузера хоста
 
@@ -101,19 +119,20 @@ WebGL2, WebSocket, DataView с 64-битными целыми и Blob.slice.
 
 ```text
 worm.asd            все системы; слои — архитектура, «Модули и зависимости»
-Makefile            test, test-full, image, repl, clean
+Makefile            test, test-full, bench, image, repl, clean
 src/<система>/      worm/platform, worm/core, … worm/analysis
 src/package.lisp    фасадный пакет WORM и пакет WORM-USER
 tests/              FiveAM; tests/structure.lisp сверяет слои с архитектурой
 scripts/            init.lisp, repl.sh, run-tests.lisp, build-image.lisp, make-muscles.lisp,
-                    make-selftest.lisp, record-oracle-runs.lisp
+                    make-selftest.lisp, record-oracle-runs.lisp, bench.lisp
 viewer/             worm-viewer.html, lib/ (Three.js r128), selftest-data.js
 vendor/             библиотеки с закреплёнными коммитами
 tools/firefox/      Firefox 115 для Linux частями; tools/firefox/install.sh
 docs/               документация проекта (главная копия)
 params/             наборы параметров: base-v1, water-v1, agar-a-v1, agar-c-v1
 anatomy/            muscles.sexp — 95 мышц (порождается scripts/make-muscles.lisp)
-configs/ sweeps/ bench/   заполняются на своих этапах
+bench/              замеры шага (make bench)
+configs/ sweeps/    заполняются на своих этапах
 ```
 
 ## Документы проекта

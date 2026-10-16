@@ -60,6 +60,10 @@
 (define-parameter gen-amplitude  :unit nil :bounds (0 10) :doc "Амплитуда A входа мышц, нормирована.")
 (define-parameter gen-frequency  :unit :Hz :bounds (0 20) :doc "Частота бегущей волны входа.")
 (define-parameter gen-wavelength :unit nil :bounds (0.05 20) :doc "Длина волны входа, доля L.")
+(define-parameter gen-direction  :unit nil :bounds (-1 1) :doc "+1 — волна от головы к хвосту, −1 — обратно.")
+(define-parameter gen-ramp       :unit :s :bounds (0.001 100) :doc "Время плавного нарастания входа.")
+(define-parameter tension-amplitude :unit :uN :bounds (0 1000)
+  :doc "Амплитуда кинематического натяжения мышцы (вариант мышцы этапа 3).")
 
 ;;; Нервное управление, уровень 2
 (define-parameter units          :kind :integer :bounds (1 95) :live nil

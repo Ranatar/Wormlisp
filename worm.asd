@@ -84,13 +84,22 @@
   :description "Слой 3. Тело, мышцы, управление, среда на DSL."
   :depends-on ("worm/dsl")
   :pathname "src/components/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "arrays")
+               (:file "body")
+               (:file "models")))
 
 (defsystem "worm/codegen"
   :description "Слой 4. Понижение модели, якобиан, эмиссия, компиляция."
   :depends-on ("worm/dsl" "worm/ir")
   :pathname "src/codegen/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "support")
+               (:file "emit")
+               (:file "compile")
+               (:file "tools")))
 
 (defsystem "worm/solver"
   :description "Слой 4. Ленточная LU, линейно-неявный шаг, события."
@@ -115,7 +124,9 @@
   :description "Слой 5. Поток симуляции, команды, снимки, API для REPL."
   :depends-on ("worm/codegen" "worm/solver" "worm/io" "worm/components")
   :pathname "src/runtime/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "bench")))
 
 (defsystem "worm/server"
   :description "Слой 6. HTTP и WebSocket, протокол живого просмотра."
@@ -162,7 +173,8 @@
 
 (defsystem "worm/tests"
   :description "Тесты проекта (FiveAM)."
-  :depends-on ("worm" "worm/oracle" "worm/dsl" "fiveam" "usocket" "cl-base64" "cl-ppcre")
+  :depends-on ("worm" "worm/oracle" "worm/dsl" "worm/codegen" "worm/components" "worm/runtime"
+               "fiveam" "usocket" "cl-base64" "cl-ppcre")
   :pathname "tests/"
   :components ((:file "package")
                (:file "suite" :depends-on ("package"))
@@ -179,6 +191,8 @@
                (:file "muscle" :depends-on ("suite"))
                (:file "ir" :depends-on ("suite"))
                (:file "dsl" :depends-on ("body"))
+               (:file "codegen" :depends-on ("dsl"))
+               (:file "codegen-physics" :depends-on ("codegen" "physics"))
                (:file "io" :depends-on ("suite"))
                (:file "analysis" :depends-on ("io"))
                (:file "server" :depends-on ("suite")))

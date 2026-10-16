@@ -31,7 +31,8 @@
 
 (defstruct (model-instance (:copier nil))
   spec topology anatomy binding medium time n-mech
-  running        ; экземпляры в порядке вычисления
+  running        ; экземпляры: механика в порядке связей, затем нервно-мышечная часть
+  mechanical     ; имена экземпляров механики
   relations)     ; ((провод . csr) …), csr — вектор на элемент-получатель: ((источник . вес) …)
 
 (defun family-count (family topology binding)
@@ -60,8 +61,14 @@
            (let ((v (make-array count)))
              (dotimes (i count v) (setf (aref v i) (coerce (loop for j below kk collect (+ (* i kk) j)) 'vector)))))
           ((eq family :node)
-           (let ((v (make-array count)))
-             (dotimes (n count v) (setf (aref v n) (vector n)))))
+           ;; сам узел, затем узлы предыдущего и следующего колец (у концов — своё)
+           (let ((v (make-array count)) (rings (worm.topology:tube-rings topology)))
+             (dotimes (n count v)
+               (let* ((i (floor n kk)) (lo (max 0 (1- i))) (hi (min (1- rings) (1+ i))))
+                 (setf (aref v n) (coerce (append (list n)
+                                                  (loop for j below kk collect (+ (* lo kk) j))
+                                                  (loop for j below kk collect (+ (* hi kk) j)))
+                                          'vector))))))
           (t nil))))
 
 (defun family-elements (family topology binding)
@@ -120,12 +127,14 @@
     csr))
 
 (defun instance-order (instances wiring)
-  "Экземпляры так, чтобы источник связи шёл раньше получателя."
+  "Экземпляры так, чтобы источник связи шёл раньше получателя. Учитываются
+только связи внутри переданных экземпляров: петли между подсистемами
+разрывает расщепление шага."
   (let ((done '()) (active '()))
     (labels ((visit (inst)
                (cond ((member (instance-name inst) done) nil)
                      ((member (instance-name inst) active)
-                      (error 'model-error :message (format nil "связи экземпляров образуют петлю через ~(~A~); исполнение таких моделей — этап 7"
+                      (error 'model-error :message (format nil "связи экземпляров образуют петлю через ~(~A~)"
                                                            (instance-name inst))))
                      (t (push (instance-name inst) active)
                         (dolist (w wiring)
@@ -136,6 +145,17 @@
                         (setf done (append done (list (instance-name inst))))))))
       (mapc #'visit instances))
     (mapcar (lambda (n) (find n instances :key #'instance-name)) done)))
+
+(defun subsystem-order (spec active wiring)
+  "Экземпляры механики и нервно-мышечной части, каждые в порядке связей."
+  (flet ((members (name)
+           (let ((names (rest (assoc name (model-spec-subsystems spec)))))
+             (remove-if-not (lambda (inst) (member (instance-name inst) names)) active))))
+    (let ((mech (members :mechanical))
+          (others (remove-if (lambda (inst) (member (instance-name inst)
+                                                    (rest (assoc :mechanical (model-spec-subsystems spec)))))
+                             active)))
+      (values (instance-order mech wiring) (instance-order others wiring)))))
 
 (defun instantiate (spec &key (params "water-v1") medium rings ring-nodes element-arrays)
   "Собрать модель по SPEC для интерпретации. PARAMS — набор параметров;
@@ -164,7 +184,8 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                                                      (find (wire-src-instance w) active :key #'instance-name))))
                                 (model-spec-wiring spec)))
          (running
-           (loop for inst in (instance-order active wiring)
+           (loop for inst in (multiple-value-bind (mech neural) (subsystem-order spec active wiring)
+                               (append mech neural))
                  collect
                  (let* ((family (instance-family inst))
                         (component (instance-component inst))
@@ -216,6 +237,7 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
                    r))))
     (make-model-instance
      :spec spec :topology topology :anatomy anatomy :binding binding :medium medium
+     :mechanical (rest (assoc :mechanical (model-spec-subsystems spec)))
      :n-mech (* 3 (worm.topology:tube-node-count topology))
      :running running
      :relations (loop for w in wiring
@@ -250,41 +272,54 @@ RINGS и RING-NODES заменяют значения из :topology; ELEMENT-AR
 (defun running-named (model name)
   (find name (model-instance-running model) :key (lambda (r) (instance-name (running-instance r)))))
 
+(defun evaluate-running (model r y aux time forces)
+  "Обновить входы R по связям и вычислить его ядро на всех элементах; силы —
+в FORCES, если он задан."
+  (let* ((inst (running-instance r))
+         (kernel (running-kernel r))
+         (n-out (length (kernel-outputs kernel)))
+         (n-force (length (kernel-forces kernel)))
+         (out (make-dvec (length (kernel-roots kernel)))))
+    (loop for (name . v) in (running-inputs r)
+          do (let ((default (third (assoc name (component-inputs (instance-component inst))))))
+               (fill v (or default 0d0))))
+    (loop for (w . csr) in (model-instance-relations model)
+          when (eq (wire-dst-instance w) (instance-name inst))
+            do (let ((src (cdr (assoc (wire-src-port w)
+                                      (running-outputs (running-named model (wire-src-instance w))))))
+                     (dst (cdr (assoc (wire-dst-port w) (running-inputs r)))))
+                 (dotimes (e (length dst))
+                   (setf (aref dst e) (loop for (s . wt) in (aref csr e) sum (* wt (aref src s)))))))
+    (dotimes (e (running-count r))
+      (worm.ir:run-evaluator (running-evaluator r) (element-env r e y aux time) out)
+      (loop for (name) in (kernel-outputs kernel) for k from 0
+            do (setf (aref (cdr (assoc name (running-outputs r))) e) (aref out k)))
+      (when forces
+        (loop for (slot c) in (kernel-forces kernel) for k from n-out
+              do (let ((node (aref (aref (running-slots r) e)
+                                   (if (integerp slot) slot (position slot (family-slots (instance-family inst) 0))))))
+                   (incf (aref forces (+ (* 3 node) c)) (aref out k)))))
+      (loop for (name) in (kernel-derivs kernel) for k from (+ n-out n-force)
+            do (setf (aref (cdr (assoc name (running-derivs r))) e) (aref out k))))))
+
 (defun interpret (model y &key aux (time 0d0) states)
-  "Выходы, силы и производные состояния модели при координатах Y.
-STATES — ((экземпляр (переменная . dvec) …) …) вместо текущих."
-  (let ((forces (make-dvec (model-instance-n-mech model))))
+  "Модель при координатах Y в порядке шага решателя (архитектура, «Порядок
+одного шага»): выходы механики (наблюдаемые) по Y и AUX, затем
+нервно-мышечная часть — её выходы и производные состояния в момент TIME, затем
+силы механики с этими выходами. STATES — ((экземпляр (переменная . dvec) …) …)
+вместо текущих значений состояния."
+  (let ((forces (make-dvec (model-instance-n-mech model)))
+        (mech (remove-if-not (lambda (r) (member (instance-name (running-instance r)) (model-instance-mechanical model)))
+                             (model-instance-running model)))
+        (others (remove-if (lambda (r) (member (instance-name (running-instance r)) (model-instance-mechanical model)))
+                           (model-instance-running model))))
     (loop for (inst-name . vars) in states
           do (let ((r (running-named model inst-name)))
                (loop for (var . v) in vars
                      do (setf (cdr (assoc var (running-states r))) (dvec-from v)))))
-    (dolist (r (model-instance-running model))
-      (let* ((inst (running-instance r))
-             (kernel (running-kernel r))
-             (n-out (length (kernel-outputs kernel)))
-             (n-force (length (kernel-forces kernel)))
-             (out (make-dvec (length (kernel-roots kernel)))))
-        ;; входы: из выходов источников по отношениям
-        (loop for (name . v) in (running-inputs r)
-              do (let ((default (third (assoc name (component-inputs (instance-component inst))))))
-                   (fill v (or default 0d0))))
-        (loop for (w . csr) in (model-instance-relations model)
-              when (eq (wire-dst-instance w) (instance-name inst))
-                do (let ((src (cdr (assoc (wire-src-port w)
-                                          (running-outputs (running-named model (wire-src-instance w))))))
-                         (dst (cdr (assoc (wire-dst-port w) (running-inputs r)))))
-                     (dotimes (e (length dst))
-                       (setf (aref dst e) (loop for (s . wt) in (aref csr e) sum (* wt (aref src s)))))))
-        (dotimes (e (running-count r))
-          (worm.ir:run-evaluator (running-evaluator r) (element-env r e y aux time) out)
-          (loop for (name) in (kernel-outputs kernel) for k from 0
-                do (setf (aref (cdr (assoc name (running-outputs r))) e) (aref out k)))
-          (loop for (slot c) in (kernel-forces kernel) for k from n-out
-                do (let ((node (aref (aref (running-slots r) e)
-                                     (if (integerp slot) slot (position slot (family-slots (instance-family inst) 0))))))
-                     (incf (aref forces (+ (* 3 node) c)) (aref out k))))
-          (loop for (name) in (kernel-derivs kernel) for k from (+ n-out n-force)
-                do (setf (aref (cdr (assoc name (running-derivs r))) e) (aref out k))))))
+    (dolist (r mech) (evaluate-running model r y aux time nil))
+    (dolist (r others) (evaluate-running model r y aux time nil))
+    (dolist (r mech) (evaluate-running model r y aux time forces))
     (make-interpretation
      :forces forces
      :outputs (loop for r in (model-instance-running model)

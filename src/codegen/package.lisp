@@ -1,8 +1,20 @@
 ;;;; src/codegen/package.lisp
 ;;;;
-;;;; Понижение модели в IR, якобиан, карты рассеяния, эмиссия, кэш fasl. Этап 7.
-;;;; Пока заглушка: система существует, чтобы раскладка слоёв
-;;;; проверялась с первого дня.
+;;;; Слой 4. Кодогенерация (архитектура, «Кодогенерация»): model-spec →
+;;;; compiled-model. Модель собирается тем же INSTANTIATE, что и для
+;;;; эталонного интерпретатора, — топология, отношения связей, ядра IR и
+;;;; поэлементные массивы общие; кодогенератор добавляет раскладку векторов,
+;;;; карты рассеяния якобиана в ленту, ширину ленты по фактическим связям и
+;;;; эмиссию типизированного Лиспа. Каждая функция модели порождается
+;;;; фабрикой: код не зависит от числа колец, массивы передаются при сборке,
+;;;; поэтому текст можно кэшировать в fasl.
 
 (defpackage #:worm.codegen
-  (:use #:cl))
+  (:use #:cl #:worm.core)
+  (:export
+   #:compile-model #:+codegen-version+
+   #:model-layout #:model-layout-param-names #:model-param-vector
+   #:model-layout-state-offsets #:model-layout-neural-states
+   #:model-instance-of #:model-notes #:model-forms
+   #:show-kernel #:interpret-kernel #:generated-form
+   #:*cache-directory*))

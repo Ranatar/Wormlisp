@@ -12,6 +12,7 @@
 ;;;;     :forces   (((pos <слот>) <вектор>) … (:gradient <скаляр> :scale <к>) …)
 ;;;;     :damping  ((<коэффициент> <линейная скорость>) …)
 ;;;;     :events   ((<выражение> :rising|:falling <действие>) …)
+;;;;     :checks   ((<причина> <выражение>) …)  ; сбой шага, если значение < 0
 ;;;;     :documentation "…")
 ;;;;
 ;;;; Вход без :default обязан быть связан в defmodel; вход с :default
@@ -23,7 +24,7 @@
 (in-package #:worm.dsl)
 
 (defstruct (component (:copier nil))
-  name family params state discrete inputs lets derivs outputs forces damping events
+  name family params state discrete inputs lets derivs outputs forces damping events checks
   documentation source)
 
 (defvar *components* (make-hash-table :test 'eq) "Компоненты по именам (ключевые слова).")
@@ -33,7 +34,8 @@
       (and errorp (dsl-error 'unknown-component "компонент ~(~A~) не определён" name))))
 
 (defparameter +component-keys+
-  '(:family :params :state :discrete :inputs :let :derivs :outputs :forces :damping :events :documentation))
+  '(:family :params :state :discrete :inputs :let :derivs :outputs :forces :damping :events :checks
+    :documentation))
 
 (defun check-plist (plist allowed what)
   (unless (evenp (length plist))
@@ -85,7 +87,7 @@
     (let ((plist (cddr form)))
       (check-plist plist +component-keys+ "define-component")
       (destructuring-bind (&key family params state discrete inputs let derivs outputs forces damping events
-                                documentation) plist
+                                checks documentation) plist
         (unless (member family +families+)
           (let ((*form* family))
             (dsl-error 'family-mismatch "неизвестное семейство ~S; допустимы ~{~(~S~)~^ ~}" family +families+)))
@@ -99,6 +101,12 @@
                    :derivs (pairs derivs ":derivs")
                    :outputs (pairs outputs ":outputs")
                    :forces forces :damping damping :events events
+                   :checks (mapcar (lambda (c)
+                                     (let ((*form* c))
+                                       (unless (and (consp c) (keywordp (first c)) (= (length c) 2))
+                                         (dsl-error 'dsl-syntax-error ":checks — (<причина-ключ> <выражение>)"))
+                                       (list (first c) (second c))))
+                                   checks)
                    :documentation documentation
                    :source form))
                (names (append (mapcar #'first (component-params c)) (mapcar #'first (component-state c))

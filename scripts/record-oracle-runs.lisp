@@ -38,5 +38,7 @@
                        :time 3d0 :h 5d-4)
 (record "oracle-agar" :params "agar-a-v1" :amplitude 15d0 :frequency 0.5d0 :wavelength 0.65d0
                       :time 8d0 :h 1d-3)
+;; Вода с h = 5·10⁻⁴: картина походки та же, что при 10⁻⁴, а скорость плавания
+;; на 30% выше (этап 7, находки; архитектура, «Открытые вопросы»).
 (record "oracle-water-muscles" :params "water-v1" :muscles t :time 4d0 :h 5d-4)
 (record "oracle-agar-muscles" :params "agar-a-v1" :muscles t :time 12d0 :h 1d-3)
