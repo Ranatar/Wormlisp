@@ -60,8 +60,9 @@
   (let ((traps (worm.platform:enabled-float-traps)))
     (is (subsetp '(:overflow :invalid :divide-by-zero) traps) "ловушки: ~S" traps))
   (is (sb-ext:float-infinity-p
-       (worm.platform:with-float-traps-masked (:divide-by-zero)
-         (/ 1d0 (- 1d0 1d0))))))
+       (let ((zero (float (parse-integer "0") 1d0)))  ; ноль, неизвестный компилятору
+         (worm.platform:with-float-traps-masked (:divide-by-zero)
+           (/ 1d0 zero))))))
 
 (test md5-matches-known-values
   (is (string= "d41d8cd98f00b204e9800998ecf8427e" (worm.platform:md5-hex "")))

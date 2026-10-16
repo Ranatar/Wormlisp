@@ -10,6 +10,7 @@
 (deftype dvec (&optional (n '*)) `(simple-array double-float (,n)))
 (deftype fvec (&optional (n '*)) `(simple-array single-float (,n)))
 (deftype ivec (&optional (n '*)) `(simple-array (unsigned-byte 32) (,n)))
+(deftype dmat (&optional (n '*) (m '*)) `(simple-array double-float (,n ,m)))
 
 (declaim (inline make-dvec make-fvec make-ivec))
 
@@ -21,6 +22,9 @@
 
 (defun make-ivec (n &optional (initial 0))
   (make-array n :element-type '(unsigned-byte 32) :initial-element initial))
+
+(defun make-dmat (n m &optional (initial 0d0))
+  (make-array (list n m) :element-type 'double-float :initial-element (float initial 0d0)))
 
 (defun dvec-from (sequence)
   "Новый dvec с элементами SEQUENCE, приведёнными к double-float."

@@ -83,7 +83,11 @@
   :description "Слой 4. Ленточная LU, линейно-неявный шаг, события."
   :depends-on ("worm/core" "worm/platform")
   :pathname "src/solver/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "conditions")
+               (:file "linalg")
+               (:file "integrator")))
 
 (defsystem "worm/io"
   :description "Слой 4. Кадры, файлы прогона, контрольные точки."
@@ -138,5 +142,7 @@
                (:file "params" :depends-on ("suite"))
                (:file "topology" :depends-on ("suite"))
                (:file "anatomy" :depends-on ("suite"))
+               (:file "solver-models" :depends-on ("suite"))
+               (:file "solver" :depends-on ("solver-models"))
                (:file "server" :depends-on ("suite")))
   :perform (test-op (o c) (uiop:symbol-call :worm.tests :run-all)))
