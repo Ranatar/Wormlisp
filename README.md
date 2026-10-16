@@ -67,6 +67,29 @@ scripts/repl.sh            # подключиться к REPL или запус�
 процесса и проверяет, что в браузере есть то, на что опирается просмотрщик:
 WebGL2, WebSocket, DataView с 64-битными целыми и Blob.slice.
 
+## Просмотр прогонов
+
+Просмотрщик — `viewer/worm-viewer.html`, один файл без сборки; Three.js r128
+лежит рядом в `viewer/lib/`. До сервера живого просмотра (этап 9) прогоны
+смотрят с диска:
+
+1. Записать прогоны ручной модели (вода и агар, около полутора минут):
+
+   ```sh
+   sbcl --non-interactive --no-userinit --load scripts/init.lisp \
+        --load scripts/record-oracle-runs.lisp
+   ```
+
+   Появятся `runs/oracle-water/` и `runs/oracle-agar/`.
+2. Скопировать на хост через WinSCP каталог `viewer/` целиком и нужные
+   каталоги из `runs/`.
+3. Открыть `worm-viewer.html` в Firefox, нажать «Открыть frames.bin и
+   meta.json…» и выбрать оба файла каталога прогона.
+
+Пробел — пуск и пауза, стрелки — кадр назад и вперёд. Самопроверка
+просмотрщика: открыть `worm-viewer.html?selftest`; в заголовке окна
+появится `WORM SELFTEST PASS` или `FAIL`, на странице — таблица проверок.
+
 ## Раскладка
 
 ```text
@@ -75,13 +98,15 @@ Makefile            test, test-full, image, repl, clean
 src/<система>/      worm/platform, worm/core, … worm/analysis
 src/package.lisp    фасадный пакет WORM и пакет WORM-USER
 tests/              FiveAM; tests/structure.lisp сверяет слои с архитектурой
-scripts/            init.lisp, repl.sh, run-tests.lisp, build-image.lisp, make-muscles.lisp
+scripts/            init.lisp, repl.sh, run-tests.lisp, build-image.lisp, make-muscles.lisp,
+                    make-selftest.lisp, record-oracle-runs.lisp
+viewer/             worm-viewer.html, lib/ (Three.js r128), selftest-data.js
 vendor/             библиотеки с закреплёнными коммитами
 tools/firefox/      Firefox 115 для Linux частями; tools/firefox/install.sh
 docs/               документация проекта (главная копия)
 params/             наборы параметров: base-v1, water-v1, agar-a-v1, agar-c-v1
 anatomy/            muscles.sexp — 95 мышц (порождается scripts/make-muscles.lisp)
-configs/ sweeps/ viewer/ bench/   заполняются на своих этапах
+configs/ sweeps/ bench/   заполняются на своих этапах
 ```
 
 ## Документы проекта

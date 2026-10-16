@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wormlisp — просмотр прогона</title>
+<!--
+  viewer/worm-viewer.html — просмотрщик прогонов Wormlisp (архитектура, «Просмотрщик»).
+
+  Режимы: записанный прогон с диска (frames.bin и meta.json через выбор
+  файлов) и с сервера (?run=<id>, этап 9). ?selftest — самопроверка разбора
+  кадров на эталоне tests/data/frames.bin.
+
+  Только то, что умеют Firefox 115 и Chrome 109: обычные скрипты без модулей
+  и сборщиков, Three.js r128 и OrbitControls из lib/ рядом с этим файлом.
+  Чтобы открыть с диска, скопируйте каталог viewer/ целиком.
+-->
+<style>
+  :root {
+    --bg: #f3f1ec; --panel: #fbfaf7; --ink: #1f2421; --muted: #66706a; --line: #d9d4c8;
+    --accent: #b5462f; --accent-soft: #f0d9d1; --ok: #2f7a4d; --bad: #b5352f;
+    --mono: "DejaVu Sans Mono", "Consolas", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.4 "DejaVu Sans", "Segoe UI", sans-serif;
+         display: grid; grid-template-rows: auto 1fr auto; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line);
+           background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .01em; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  .info { color: var(--muted); font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .info b { color: var(--ink); font-weight: 600; }
+  label.file { border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; background: #fff; }
+  label.file:hover { border-color: var(--accent); }
+  label.file input { display: none; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+  #scene-wrap { position: relative; min-height: 0; background: radial-gradient(circle at 50% 40%, #fdfcf9, #e9e5dc); }
+  #scene { width: 100%; height: 100%; display: block; }
+  #scene-note { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted);
+                text-align: center; padding: 24px; pointer-events: none; }
+  #legend { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted);
+            display: flex; gap: 10px; align-items: center; }
+  #legend[hidden] { display: none; }
+  #legend i { display: inline-block; width: 64px; height: 8px; border-radius: 4px;
+              background: linear-gradient(90deg, #d9cfbf, #b5462f); vertical-align: middle; }
+  aside { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 12px 14px; }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+             margin: 14px 0 6px; font-weight: 600; }
+  aside h2:first-child { margin-top: 2px; }
+  canvas.chart { width: 100%; display: block; background: #fff; border: 1px solid var(--line); border-radius: 4px; }
+  #kymo { height: 220px; }
+  .chart-small { height: 110px; }
+  .kymo-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .metrics { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 13px; }
+  .metrics span:nth-child(odd) { color: var(--muted); }
+  .metrics span:nth-child(even) { font-family: var(--mono); text-align: right; }
+  footer { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-top: 1px solid var(--line);
+           background: var(--panel); flex-wrap: wrap; }
+  footer button, footer select { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 6px;
+                                 padding: 4px 10px; cursor: pointer; }
+  footer button:hover:not(:disabled) { border-color: var(--accent); }
+  footer button:disabled { opacity: .45; cursor: default; }
+  #play { min-width: 92px; }
+  #slider { flex: 1; min-width: 160px; accent-color: var(--accent); }
+  #status { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #selftest { position: fixed; inset: 0; background: rgba(243,241,236,.97); display: none; overflow: auto; padding: 32px; }
+  #selftest h2 { font-size: 22px; margin: 0 0 6px; }
+  #selftest .verdict.ok { color: var(--ok); } #selftest .verdict.bad { color: var(--bad); }
+  #selftest table { border-collapse: collapse; margin-top: 14px; font-size: 13px; }
+  #selftest td { padding: 3px 14px 3px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  #selftest td.ok { color: var(--ok); } #selftest td.bad { color: var(--bad); font-weight: 600; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; }
+                              aside { border-left: 0; border-top: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Wormlisp <span>· просмотр прогона</span></h1>
+  <label class="file">Открыть frames.bin и meta.json…
+    <input id="files" type="file" multiple accept=".bin,.json">
+  </label>
+  <div class="info" id="info">Прогон не загружен</div>
+</header>
+<main>
+  <div id="scene-wrap">
+    <canvas id="scene"></canvas>
+    <div id="scene-note">Выберите frames.bin и meta.json из каталога прогона runs/&lt;id&gt;/.</div>
+    <div id="legend" hidden>активация мышц <i></i> 0 … 1</div>
+  </div>
+  <aside>
+    <h2>Кимограмма кривизны</h2>
+    <canvas id="kymo" class="chart"></canvas>
+    <div class="kymo-axis"><span>голова сверху, хвост снизу; время →</span><span id="kymo-scale"></span></div>
+    <h2>Скорость вперёд, мм/с</h2>
+    <canvas id="speed" class="chart chart-small"></canvas>
+    <h2>Частота волны, Гц</h2>
+    <canvas id="freq" class="chart chart-small"></canvas>
+    <h2>Метрики прогона</h2>
+    <div class="metrics" id="metrics"><span>—</span><span></span></div>
+  </aside>
+</main>
+<footer>
+  <button id="play" disabled>▶ Пуск</button>
+  <button id="back" disabled title="Кадр назад">◀︎</button>
+  <button id="fwd" disabled title="Кадр вперёд">▶︎</button>
+  <select id="rate" title="Скорость воспроизведения">
+    <option value="0.1">0,1×</option><option value="0.25">0,25×</option><option value="0.5">0,5×</option>
+    <option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option>
+  </select>
+  <label><input type="checkbox" id="follow" checked> следить за телом</label>
+  <input id="slider" type="range" min="0" max="0" value="0" disabled>
+  <span id="status">—</span>
+</footer>
+<div id="selftest"></div>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<script>
+"use strict";
+/* ---------------------------------------------------------------------
+ * Разбор кадров (архитектура, «Кадр» и «frames.bin»). Один и тот же для
+ * файла и сети; данные little-endian.
+ * ------------------------------------------------------------------- */
+var WRMS = 0x534d5257, WRMF = 0x464d5257, FRAME_VERSION = 1, FILE_HEADER = 64;
+
+function parseFramesFile(buffer) {
+  var dv = new DataView(buffer);
+  if (buffer.byteLength < FILE_HEADER || dv.getUint32(0, true) !== WRMS)
+    throw new Error("это не файл кадров WRMS");
+  var version = dv.getUint16(4, true);
+  if (version !== FRAME_VERSION) throw new Error("версия файла " + version + ", просмотрщик знает " + FRAME_VERSION);
+  var n = dv.getUint32(8, true), m = dv.getUint32(12, true), q = dv.getUint32(16, true);
+  var size = dv.getUint32(20, true);
+  if (size !== 32 + 12 * n + 4 * m + 4 * q) throw new Error("размер кадра не сходится с n, m, q");
+  var stored = Number(dv.getBigUint64(24, true));
+  var complete = Math.floor((buffer.byteLength - FILE_HEADER) / size);
+  var count = stored > 0 && stored <= complete ? stored : complete;
+  return {
+    buffer: buffer, nodes: n, muscles: m, neurons: q, frameSize: size, count: count,
+    frame: function (k) { return decodeFrame(buffer, FILE_HEADER + k * size, q); }
+  };
+}
+
+function decodeFrame(buffer, pos, q) {
+  var dv = new DataView(buffer, pos);
+  if (dv.getUint32(0, true) !== WRMF) throw new Error("нет сигнатуры кадра WRMF на смещении " + pos);
+  if (dv.getUint16(4, true) !== FRAME_VERSION) throw new Error("версия кадра " + dv.getUint16(4, true));
+  var n = dv.getUint32(24, true), m = dv.getUint32(28, true);
+  var coords = new Float32Array(3 * n), acts = new Float32Array(m), neurons = null;
+  var p = 32, i;
+  for (i = 0; i < 3 * n; i++, p += 4) coords[i] = dv.getFloat32(p, true);
+  for (i = 0; i < m; i++, p += 4) acts[i] = dv.getFloat32(p, true);
+  if ((dv.getUint16(6, true) & 1) && q) {
+    neurons = new Float32Array(q);
+    for (i = 0; i < q; i++, p += 4) neurons[i] = dv.getFloat32(p, true);
+  }
+  return { step: Number(dv.getBigUint64(8, true)), time: dv.getFloat64(16, true),
+           coords: coords, activations: acts, neurons: neurons };
+}
+
+/* ---------------------------------------------------------------------
+ * Кинематика по координатам — те же формулы, что worm.topology в Лиспе:
+ * центры колец, знаковая дорсо-вентральная кривизна (положительна, когда
+ * центр кривизны с дорсальной стороны), центр тела, направление тела.
+ * ------------------------------------------------------------------- */
+function ringCenters(c, rings, K) {
+  var out = new Float64Array(3 * rings), inv = 1 / K;
+  for (var i = 0; i < rings; i++)
+    for (var k = 0; k < K; k++) {
+      var p = 3 * (i * K + k);
+      out[3 * i] += inv * c[p]; out[3 * i + 1] += inv * c[p + 1]; out[3 * i + 2] += inv * c[p + 2];
+    }
+  return out;
+}
+
+function ringCurvatures(c, rings, K) {
+  var cen = ringCenters(c, rings, K), out = new Float64Array(rings);
+  for (var i = 1; i < rings - 1; i++) {
+    var i0 = 3 * (i - 1), i1 = 3 * i, i2 = 3 * (i + 1);
+    var ax = cen[i1] - cen[i0], ay = cen[i1 + 1] - cen[i0 + 1], az = cen[i1 + 2] - cen[i0 + 2];
+    var bx = cen[i2] - cen[i1], by = cen[i2 + 1] - cen[i1 + 1], bz = cen[i2 + 2] - cen[i1 + 2];
+    var la = Math.sqrt(ax * ax + ay * ay + az * az), lb = Math.sqrt(bx * bx + by * by + bz * bz);
+    var s = 2 / (la + lb);
+    var kx = s * (bx / lb - ax / la), ky = s * (by / lb - ay / la), kz = s * (bz / lb - az / la);
+    var dx = 0, dy = 0, dz = 0;
+    for (var k = 0; k < K; k++) {
+      var p = 3 * (i * K + k), w = Math.cos((2 * k + 1) * Math.PI / K);
+      dx += w * (c[p] - cen[i1]); dy += w * (c[p + 1] - cen[i1 + 1]); dz += w * (c[p + 2] - cen[i1 + 2]);
+    }
+    out[i] = (kx * dx + ky * dy + kz * dz) / Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+  return out;
+}
+
+function bodyPose(c, rings, K) {
+  var cen = ringCenters(c, rings, K), q = Math.max(1, Math.floor(rings / 4));
+  var mid = [0, 0, 0], head = [0, 0, 0], tail = [0, 0, 0];
+  for (var i = 0; i < rings; i++) for (var d = 0; d < 3; d++) mid[d] += cen[3 * i + d] / rings;
+  for (i = 0; i < q; i++) for (d = 0; d < 3; d++) {
+    head[d] += cen[3 * i + d] / q; tail[d] += cen[3 * (rings - 1 - i) + d] / q;
+  }
+  var h = [head[0] - tail[0], head[1] - tail[1], head[2] - tail[2]];
+  var nrm = Math.hypot(h[0], h[1], h[2]) || 1;
+  return { center: mid, heading: [h[0] / nrm, h[1] / nrm, h[2] / nrm], centers: cen };
+}
+
+/* ---------------------------------------------------------------------
+ * Состояние просмотрщика
+ * ------------------------------------------------------------------- */
+var run = null;          // { file, meta, rings, K, times, curv, poses, speed, freq, weights }
+var current = 0, playing = false, lastTick = 0, playTime = 0;
+var $ = function (id) { return document.getElementById(id); };
+
+function analyse(file, meta) {
+  var topo = meta.topology || {};
+  var rings = topo.rings, K = topo.ringNodes;
+  if (!rings || !K || rings * K !== file.nodes)
+    throw new Error("meta.json не описывает топологию кадров (rings × ringNodes ≠ числу узлов)");
+  var count = file.count, times = new Float64Array(count), curv = [], poses = [];
+  for (var k = 0; k < count; k++) {
+    var f = file.frame(k);
+    times[k] = f.time;
+    curv.push(ringCurvatures(f.coords, rings, K));
+    poses.push(bodyPose(f.coords, rings, K));
+  }
+  var speed = forwardSpeed(times, poses), freq = waveFrequency(times, curv, rings);
+  return { file: file, meta: meta, rings: rings, K: K, times: times, curv: curv, poses: poses,
+           speed: speed, freq: freq, weights: muscleWeights(meta, rings) };
+}
+
+function forwardSpeed(times, poses) {
+  // производная центра на окне ±0,1 с, спроецированная на направление тела
+  var n = times.length, out = new Float64Array(n);
+  for (var k = 0; k < n; k++) {
+    var a = k, b = k;
+    while (a > 0 && times[k] - times[a] < 0.1) a--;
+    while (b < n - 1 && times[b] - times[k] < 0.1) b++;
+    var dt = times[b] - times[a];
+    if (dt <= 0) { out[k] = NaN; continue; }
+    var h = poses[k].heading, ca = poses[a].center, cb = poses[b].center;
+    out[k] = ((cb[0] - ca[0]) * h[0] + (cb[1] - ca[1]) * h[1] + (cb[2] - ca[2]) * h[2]) / dt;
+  }
+  return out;
+}
+
+function waveFrequency(times, curv, rings) {
+  // по переходам кривизны середины тела через ноль снизу вверх
+  // с гистерезисом, как в worm.analysis: переход засчитывается, только если
+  // перед ним кривизна опускалась ниже −θ (десятая доля размаха, не меньше 0,01 1/мм)
+  var mid = Math.floor(rings / 2), n = times.length, ups = [], out = new Float64Array(n).fill(NaN);
+  var theta = 0, armed = false;
+  for (var k = 0; k < n; k++) theta = Math.max(theta, Math.abs(curv[k][mid]));
+  theta = Math.max(0.01, 0.1 * theta);
+  for (k = 1; k < n; k++) {
+    var a = curv[k - 1][mid], b = curv[k][mid];
+    if (a < -theta) armed = true;
+    if (armed && a < 0 && b >= 0) { ups.push(times[k - 1] + (times[k] - times[k - 1]) * (-a) / (b - a)); armed = false; }
+  }
+  for (var j = 1; j < ups.length; j++) {
+    var f = 1 / (ups[j] - ups[j - 1]);
+    for (k = 0; k < n; k++) if (times[k] >= ups[j - 1] && times[k] < ups[j]) out[k] = f;
+  }
+  return { series: out, mean: ups.length > 1 ? (ups.length - 1) / (ups[ups.length - 1] - ups[0]) : NaN };
+}
+
+function muscleWeights(meta, rings) {
+  // для кольца i и квадранта q: [номер мышцы, вес] по профилю веретена
+  var quads = ["dorsal-left", "ventral-left", "ventral-right", "dorsal-right"];
+  var w = [];
+  for (var i = 0; i < rings; i++) {
+    var s = i / (rings - 1), row = [[], [], [], []];
+    (meta.muscles || []).forEach(function (m, j) {
+      var q = quads.indexOf(m.quadrant);
+      if (q < 0 || s <= m.from || s >= m.to) return;
+      var v = s <= m.peak ? (s - m.from) / (m.peak - m.from) : (m.to - s) / (m.to - m.peak);
+      if (v > 0) row[q].push([j, v]);
+    });
+    w.push(row);
+  }
+  return w;
+}
+
+/* ---------------------------------------------------------------------
+ * Сцена: трубка из N × K вершин и двух центров торцов. Индексы строятся
+ * один раз; на кадре меняются только положения и цвета.
+ * ------------------------------------------------------------------- */
+var three = null;
+
+function webglAvailable() {
+  try {
+    var c = document.createElement("canvas");
+    return !!(window.WebGLRenderingContext && (c.getContext("webgl2") || c.getContext("webgl")));
+  } catch (e) { return false; }
+}
+
+function buildScene() {
+  if (typeof THREE === "undefined" || !webglAvailable()) {
+    $("scene-note").textContent = "WebGL недоступен в этом браузере: трёхмерный вид выключен, кимограмма и графики работают.";
+    return null;
+  }
+  var canvas = $("scene");
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(35, 1, 0.001, 100);
+  camera.up.set(0, 0, 1);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8170, 0.75));
+  var sun = new THREE.DirectionalLight(0xffffff, 0.55);
+  sun.position.set(-1, -2, 3);
+  scene.add(sun);
+  var controls = new THREE.OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  return { renderer: renderer, scene: scene, camera: camera, controls: controls, mesh: null, plane: null };
+}
+
+function makeTube(rings, K) {
+  var count = rings * K + 2;
+  var geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(3 * count), 3));
+  geom.setAttribute("color", new THREE.BufferAttribute(new Float32Array(3 * count), 3));
+  var idx = [];
+  for (var i = 0; i < rings - 1; i++)
+    for (var k = 0; k < K; k++) {
+      var a = i * K + k, b = i * K + (k + 1) % K, c = (i + 1) * K + k, d = (i + 1) * K + (k + 1) % K;
+      idx.push(a, b, c, b, d, c);
+    }
+  var head = rings * K, tail = rings * K + 1;
+  for (k = 0; k < K; k++) {
+    idx.push(head, (k + 1) % K, k);
+    idx.push(tail, (rings - 1) * K + k, (rings - 1) * K + (k + 1) % K);
+  }
+  geom.setIndex(idx);
+  var mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  return new THREE.Mesh(geom, mat);
+}
+
+var BASE = [0.851, 0.812, 0.749], ACTIVE = [0.71, 0.275, 0.184];
+
+function drawFrame(k) {
+  if (!run) return;
+  current = k;
+  var f = run.file.frame(k), rings = run.rings, K = run.K;
+  if (three && three.mesh) {
+    var pos = three.mesh.geometry.attributes.position, col = three.mesh.geometry.attributes.color;
+    var c = f.coords, pa = pos.array, ca = col.array, cen = run.poses[k].centers;
+    pa.set(c);
+    pa.set([cen[0], cen[1], cen[2]], 3 * rings * K);
+    var t = 3 * (rings - 1);
+    pa.set([cen[t], cen[t + 1], cen[t + 2]], 3 * (rings * K + 1));
+    for (var i = 0; i < rings; i++)
+      for (var j = 0; j < K; j++) {
+        var q = Math.floor(4 * j / K), a = 0;
+        run.weights[i][q].forEach(function (w) { a += w[1] * f.activations[w[0]]; });
+        a = Math.max(0, Math.min(1, a));
+        var p = 3 * (i * K + j);
+        for (var d = 0; d < 3; d++) ca[p + d] = BASE[d] + (ACTIVE[d] - BASE[d]) * a;
+      }
+    for (d = 0; d < 6; d++) ca[3 * rings * K + d] = BASE[d % 3];
+    pos.needsUpdate = true; col.needsUpdate = true;
+    three.mesh.geometry.computeVertexNormals();
+    three.mesh.geometry.computeBoundingSphere();
+    if ($("follow").checked) {
+      var ce = run.poses[k].center;
+      var dx = ce[0] - three.controls.target.x, dy = ce[1] - three.controls.target.y, dz = ce[2] - three.controls.target.z;
+      three.controls.target.set(ce[0], ce[1], ce[2]);
+      three.camera.position.set(three.camera.position.x + dx, three.camera.position.y + dy, three.camera.position.z + dz);
+    }
+  }
+  $("slider").value = k;
+  var dt = (run.meta.dt && run.meta.dt.length) ? run.meta.dt[run.meta.dt.length - 1].value : NaN;
+  $("status").textContent = "кадр " + (k + 1) + "/" + run.file.count + "  шаг " + f.step +
+    "  t = " + f.time.toFixed(3) + " с  h = " + (isFinite(dt) ? dt.toExponential(1) : "—") + " с";
+  drawCharts();
+}
+
+function resize() {
+  if (!three) return;
+  var canvas = $("scene"), w = canvas.clientWidth, h = canvas.clientHeight;
+  three.renderer.setSize(w, h, false);
+  three.camera.aspect = w / Math.max(h, 1);
+  three.camera.updateProjectionMatrix();
+  drawCharts();
+}
+
+function frameCamera() {
+  var p = run.poses[0], L = (run.meta.topology && run.meta.topology.length) || 1;
+  three.controls.target.set(p.center[0], p.center[1], p.center[2]);
+  three.camera.position.set(p.center[0] - 0.35 * L, p.center[1] - 1.1 * L, p.center[2] + 0.9 * L);
+  three.camera.near = L / 1000; three.camera.far = L * 100;
+  three.camera.updateProjectionMatrix();
+}
+
+/* ---------------------------------------------------------------------
+ * Кимограмма и графики (canvas 2D)
+ * ------------------------------------------------------------------- */
+var kymoImage = null, kymoScale = 1;
+
+function fitCanvas(canvas) {
+  var r = window.devicePixelRatio || 1, w = Math.round(canvas.clientWidth * r), h = Math.round(canvas.clientHeight * r);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  return { w: w, h: h, r: r };
+}
+
+function curvatureColor(v) {
+  // расходящаяся шкала: вентральный изгиб — синий, дорсальный — терракота
+  var t = Math.max(-1, Math.min(1, v));
+  var neg = [44, 100, 160], mid = [247, 245, 240], pos = [181, 70, 47];
+  var e = t < 0 ? neg : pos, a = Math.abs(t);
+  return [mid[0] + (e[0] - mid[0]) * a, mid[1] + (e[1] - mid[1]) * a, mid[2] + (e[2] - mid[2]) * a];
+}
+
+function buildKymogram() {
+  var n = run.times.length, rings = run.rings, vals = [];
+  run.curv.forEach(function (row) { for (var i = 1; i < rings - 1; i++) vals.push(Math.abs(row[i])); });
+  vals.sort(function (a, b) { return a - b; });
+  kymoScale = vals.length ? (vals[Math.floor(0.98 * (vals.length - 1))] || 1) : 1;
+  var img = document.createElement("canvas");
+  img.width = n; img.height = rings;
+  var ctx = img.getContext("2d"), data = ctx.createImageData(n, rings);
+  for (var k = 0; k < n; k++)
+    for (var i = 0; i < rings; i++) {
+      var c = curvatureColor(run.curv[k][i] / kymoScale), p = 4 * (i * n + k);
+      data.data[p] = c[0]; data.data[p + 1] = c[1]; data.data[p + 2] = c[2]; data.data[p + 3] = 255;
+    }
+  ctx.putImageData(data, 0, 0);
+  kymoImage = img;
+  $("kymo-scale").textContent = "±" + kymoScale.toFixed(2) + " 1/мм";
+}
+
+function drawCharts() {
+  if (!run) return;
+  var kc = $("kymo"), g = fitCanvas(kc), ctx = kc.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, g.w, g.h);
+  if (kymoImage) ctx.drawImage(kymoImage, 0, 0, g.w, g.h);
+  cursor(ctx, g, current / Math.max(1, run.times.length - 1));
+  lineChart($("speed"), run.speed, "#2f6f9f");
+  lineChart($("freq"), run.freq.series, "#b5462f");
+}
+
+function cursor(ctx, g, frac) {
+  ctx.strokeStyle = "rgba(31,36,33,.75)"; ctx.lineWidth = g.r;
+  ctx.beginPath(); ctx.moveTo(frac * g.w, 0); ctx.lineTo(frac * g.w, g.h); ctx.stroke();
+}
+
+function lineChart(canvas, series, color) {
+  var g = fitCanvas(canvas), ctx = canvas.getContext("2d"), n = series.length;
+  ctx.clearRect(0, 0, g.w, g.h);
+  var lo = Infinity, hi = -Infinity;
+  for (var k = 0; k < n; k++) if (isFinite(series[k])) { lo = Math.min(lo, series[k]); hi = Math.max(hi, series[k]); }
+  if (!isFinite(lo)) { ctx.fillStyle = "#66706a"; ctx.font = (11 * g.r) + "px sans-serif"; ctx.fillText("нет данных", 8 * g.r, 18 * g.r); return; }
+  lo = Math.min(lo, 0); hi = Math.max(hi, 0); if (hi - lo < 1e-12) { hi += 1; }
+  var pad = 14 * g.r, y = function (v) { return g.h - pad - (v - lo) / (hi - lo) * (g.h - 2 * pad); };
+  ctx.strokeStyle = "#d9d4c8"; ctx.lineWidth = g.r;
+  ctx.beginPath(); ctx.moveTo(0, y(0)); ctx.lineTo(g.w, y(0)); ctx.stroke();
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5 * g.r; ctx.beginPath();
+  var started = false;
+  for (k = 0; k < n; k++) {
+    if (!isFinite(series[k])) { started = false; continue; }
+    var x = k / Math.max(1, n - 1) * g.w;
+    if (started) ctx.lineTo(x, y(series[k])); else { ctx.moveTo(x, y(series[k])); started = true; }
+  }
+  ctx.stroke();
+  ctx.fillStyle = "#66706a"; ctx.font = (10 * g.r) + "px sans-serif";
+  ctx.fillText(hi.toPrecision(3), 4 * g.r, 11 * g.r);
+  ctx.fillText(lo.toPrecision(3), 4 * g.r, g.h - 3 * g.r);
+  cursor(ctx, g, current / Math.max(1, n - 1));
+}
+
+/* ---------------------------------------------------------------------
+ * Загрузка прогона и воспроизведение
+ * ------------------------------------------------------------------- */
+function loadRun(buffer, meta) {
+  var file = parseFramesFile(buffer);
+  run = analyse(file, meta);
+  if (!three) three = buildScene();
+  if (three) {
+    if (three.mesh) three.scene.remove(three.mesh);
+    if (three.plane) three.scene.remove(three.plane);
+    three.mesh = makeTube(run.rings, run.K);
+    three.scene.add(three.mesh);
+    if (meta.medium === "agar") {
+      var L = (meta.topology && meta.topology.length) || 1;
+      three.plane = new THREE.GridHelper(4 * L, 40, 0xb9b2a2, 0xd8d2c4);
+      three.plane.rotation.x = Math.PI / 2;
+      three.plane.position.set(run.poses[0].center[0], run.poses[0].center[1], 0);
+      three.scene.add(three.plane);
+    }
+    $("scene-note").textContent = "";
+    $("legend").hidden = false;
+    frameCamera();
+  }
+  buildKymogram();
+  var info = [];
+  info.push("<b>" + (meta.model && meta.model.name || "модель") + "</b>");
+  info.push("среда: <b>" + (meta.medium || "—") + "</b>");
+  if (meta.params) info.push("параметры: <b>" + meta.params.set + "</b>");
+  info.push("кадров: <b>" + file.count + "</b>");
+  info.push("длительность: <b>" + run.times[run.times.length - 1].toFixed(2) + " с</b>");
+  $("info").innerHTML = info.join("");
+  var speeds = Array.prototype.filter.call(run.speed, isFinite);
+  var meanSpeed = speeds.length ? speeds.reduce(function (a, b) { return a + b; }, 0) / speeds.length : NaN;
+  $("metrics").innerHTML = [
+    ["средняя скорость вперёд", isFinite(meanSpeed) ? meanSpeed.toFixed(3) + " мм/с" : "—"],
+    ["частота волны", isFinite(run.freq.mean) ? run.freq.mean.toFixed(3) + " Гц" : "—"],
+    ["размах кривизны", "±" + kymoScale.toFixed(2) + " 1/мм"],
+    ["кольца × узлы", run.rings + " × " + run.K],
+    ["мышц в кадре", file.muscles]
+  ].map(function (r) { return "<span>" + r[0] + "</span><span>" + r[1] + "</span>"; }).join("");
+  ["play", "back", "fwd", "slider"].forEach(function (id) { $(id).disabled = false; });
+  $("slider").max = file.count - 1;
+  playTime = run.times[0];
+  resize();
+  drawFrame(0);
+}
+
+function loadFromFiles(list) {
+  var bin = null, json = null;
+  Array.prototype.forEach.call(list, function (f) {
+    if (/\.bin$/i.test(f.name)) bin = f; else if (/\.json$/i.test(f.name)) json = f;
+  });
+  if (!bin || !json) { alert("Нужны оба файла каталога прогона: frames.bin и meta.json."); return; }
+  Promise.all([bin.arrayBuffer(), json.text()]).then(function (r) {
+    try { loadRun(r[0], JSON.parse(r[1])); } catch (e) { alert("Не удалось открыть прогон: " + e.message); }
+  });
+}
+
+function loadFromServer(id) {
+  var base = "runs/" + encodeURIComponent(id) + "/";
+  Promise.all([fetch(base + "frames.bin").then(function (r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }),
+               fetch(base + "meta.json").then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })])
+    .then(function (r) { loadRun(r[0], r[1]); })
+    .catch(function (e) { $("scene-note").textContent = "Не удалось загрузить прогон " + id + " с сервера: " + e.message; });
+}
+
+function tick(now) {
+  if (three) { three.controls.update(); }
+  if (playing && run) {
+    var dt = lastTick ? (now - lastTick) / 1000 : 0, times = run.times;
+    playTime += dt * parseFloat($("rate").value);
+    if (playTime > times[times.length - 1]) playTime = times[0];
+    var k = current;
+    while (k < times.length - 1 && times[k + 1] <= playTime) k++;
+    if (times[k] > playTime) k = 0;
+    if (k !== current) drawFrame(k);
+  }
+  lastTick = now;
+  if (three && three.mesh) three.renderer.render(three.scene, three.camera);
+  requestAnimationFrame(tick);
+}
+
+function setPlaying(on) {
+  playing = on;
+  $("play").textContent = on ? "❚❚ Пауза" : "▶ Пуск";
+  if (on && run) playTime = run.times[current];
+}
+
+/* ---------------------------------------------------------------------
+ * Самопроверка (?selftest): эталонный файл, записанный Лиспом, и
+ * ожидаемые значения из viewer/selftest-data.js.
+ * ------------------------------------------------------------------- */
+function runSelftest() {
+  var panel = $("selftest");
+  panel.style.display = "block";
+  panel.innerHTML = "<h2>Самопроверка просмотрщика…</h2>";
+  var script = document.createElement("script");
+  script.src = "selftest-data.js";
+  script.onerror = function () { report([["selftest-data.js загружен", false, "файл не найден рядом с просмотрщиком"]]); };
+  script.onload = function () {
+    var checks = [];
+    function check(name, ok, detail) { checks.push([name, !!ok, detail || ""]); }
+    try {
+      var data = window.WORM_SELFTEST, exp = data.expected;
+      var bytes = Uint8Array.from(atob(data.framesBase64), function (c) { return c.charCodeAt(0); });
+      var file = parseFramesFile(bytes.buffer);
+      check("сигнатура и версия файла", true);
+      check("узлов " + exp.nodes, file.nodes === exp.nodes, file.nodes);
+      check("мышц " + exp.muscles, file.muscles === exp.muscles, file.muscles);
+      check("нейронов " + exp.neurons, file.neurons === exp.neurons, file.neurons);
+      check("размер кадра " + exp.frameSize, file.frameSize === exp.frameSize, file.frameSize);
+      check("кадров " + exp.count, file.count === exp.count, file.count);
+      exp.frames.forEach(function (e, k) {
+        var f = file.frame(k), sum = 0;
+        for (var i = 0; i < f.coords.length; i++) sum += f.coords[i];
+        check("кадр " + k + ": шаг " + e.step, f.step === e.step, f.step);
+        check("кадр " + k + ": время", f.time === e.time, f.time + " против " + e.time);
+        check("кадр " + k + ": координаты", f.coords[0] === e.firstCoord && f.coords[f.coords.length - 1] === e.lastCoord,
+              f.coords[0] + " … " + f.coords[f.coords.length - 1]);
+        check("кадр " + k + ": сумма координат", Math.abs(sum - e.coordSum) <= 1e-12 * Math.abs(e.coordSum),
+              sum + " против " + e.coordSum);
+        check("кадр " + k + ": активации", f.activations[0] === e.firstActivation &&
+              f.activations[f.activations.length - 1] === e.lastActivation);
+        var curv = ringCurvatures(f.coords, exp.rings, exp.ringNodes), worst = 0;
+        for (i = 0; i < curv.length; i++) worst = Math.max(worst, Math.abs(curv[i] - e.curvature[i]));
+        check("кадр " + k + ": кривизна колец как в Лиспе", worst < 1e-9, "расхождение " + worst.toExponential(2));
+      });
+      var bad = false;
+      try { parseFramesFile(new ArrayBuffer(10)); } catch (e) { bad = true; }
+      check("обрезанный файл отвергается", bad);
+      var truncated = bytes.slice(0, FILE_HEADER + 2 * file.frameSize + 7).buffer;
+      check("оборванный прогон: число кадров по длине файла", parseFramesFile(truncated).count === 2);
+    } catch (e) { check("разбор без исключений", false, e.message); }
+    report(checks);
+  };
+  document.head.appendChild(script);
+
+  function report(checks) {
+    var ok = checks.every(function (c) { return c[1]; });
+    document.title = "WORM SELFTEST " + (ok ? "PASS" : "FAIL");
+    panel.innerHTML = "<h2 class='verdict " + (ok ? "ok" : "bad") + "'>Самопроверка: " +
+      (ok ? "пройдена" : "есть ошибки") + "</h2><div>" + checks.filter(function (c) { return c[1]; }).length +
+      " из " + checks.length + " проверок · " + navigator.userAgent + "</div><table>" +
+      checks.map(function (c) {
+        return "<tr><td class='" + (c[1] ? "ok" : "bad") + "'>" + (c[1] ? "✓" : "✗") + "</td><td>" + c[0] +
+               "</td><td>" + String(c[2]).replace(/</g, "&lt;") + "</td></tr>";
+      }).join("") + "</table>";
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * Начало
+ * ------------------------------------------------------------------- */
+$("files").addEventListener("change", function (e) { loadFromFiles(e.target.files); });
+$("play").addEventListener("click", function () { setPlaying(!playing); });
+$("back").addEventListener("click", function () { setPlaying(false); if (run) drawFrame(Math.max(0, current - 1)); });
+$("fwd").addEventListener("click", function () { setPlaying(false); if (run) drawFrame(Math.min(run.file.count - 1, current + 1)); });
+$("slider").addEventListener("input", function (e) { setPlaying(false); drawFrame(parseInt(e.target.value, 10)); });
+window.addEventListener("resize", resize);
+document.addEventListener("keydown", function (e) {
+  if (!run || e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
+  if (e.key === "ArrowLeft") drawFrame(Math.max(0, current - 1));
+  if (e.key === "ArrowRight") drawFrame(Math.min(run.file.count - 1, current + 1));
+});
+
+var params = new URLSearchParams(location.search);
+if (params.has("selftest")) runSelftest();
+else if (params.has("run")) { three = buildScene(); loadFromServer(params.get("run")); }
+else three = buildScene();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

@@ -103,42 +103,7 @@
         (dotimes (k kk)
           (decf (aref out (+ (* 3 (+ (* i kk) k)) 2)) lowest))))))
 
-;;; Наблюдаемые
-
-(defun ring-curvatures (y rings ring-nodes centers out)
-  "Знаковая дорсо-вентральная кривизна в кольцах, 1/мм: положительна, когда
-центр кривизны лежит с дорсальной стороны. На крайних кольцах — 0."
-  (declare (type dvec y centers out) (type index rings ring-nodes))
-  (ring-centers y rings ring-nodes centers)
-  (setf (aref out 0) 0d0 (aref out (1- rings)) 0d0)
-  (loop for i from 1 below (1- rings)
-        do (let* ((i0 (* 3 (1- i))) (i1 (* 3 i)) (i2 (* 3 (1+ i)))
-                  (ax (- (aref centers i1) (aref centers i0)))
-                  (ay (- (aref centers (+ i1 1)) (aref centers (+ i0 1))))
-                  (az (- (aref centers (+ i1 2)) (aref centers (+ i0 2))))
-                  (bx (- (aref centers i2) (aref centers i1)))
-                  (by (- (aref centers (+ i2 1)) (aref centers (+ i1 1))))
-                  (bz (- (aref centers (+ i2 2)) (aref centers (+ i1 2))))
-                  (la (sqrt (+ (* ax ax) (* ay ay) (* az az))))
-                  (lb (sqrt (+ (* bx bx) (* by by) (* bz bz))))
-                  (scale (/ 2d0 (+ la lb)))
-                  (kx (* scale (- (/ bx lb) (/ ax la))))
-                  (ky (* scale (- (/ by lb) (/ ay la))))
-                  (kz (* scale (- (/ bz lb) (/ az la))))
-                  (dx 0d0) (dy 0d0) (dz 0d0))
-             (declare (type fixnum i0 i1 i2)
-                      (type double-float ax ay az bx by bz la lb scale kx ky kz dx dy dz))
-             ;; дорсальное направление кольца: Σ cos θ_k·(x_k − центр)
-             (dotimes (k ring-nodes)
-               (let ((p (* 3 (+ (* i ring-nodes) k)))
-                     (w (cos (/ (* (+ (* 2 k) 1) pi) ring-nodes))))
-                 (declare (type fixnum p) (type double-float w))
-                 (incf dx (* w (- (aref y p) (aref centers i1))))
-                 (incf dy (* w (- (aref y (+ p 1)) (aref centers (+ i1 1)))))
-                 (incf dz (* w (- (aref y (+ p 2)) (aref centers (+ i1 2)))))))
-             (let ((dn (sqrt (+ (* dx dx) (* dy dy) (* dz dz)))))
-               (setf (aref out i) (/ (+ (* kx dx) (* ky dy) (* kz dz)) dn)))))
-  (values))
+;;; Наблюдаемые: кривизна колец — worm.topology:ring-curvatures
 
 (defun weighted-centroid (y tube)
   "Центр тела с весами Δs колец — величина, которую при K = 1 внутренние

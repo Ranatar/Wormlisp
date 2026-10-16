@@ -10,6 +10,7 @@
 
 (defpackage #:worm.oracle
   (:use #:cl #:worm.core)
+  (:import-from #:worm.topology #:ring-centers #:ring-curvatures)
   (:export
    ;; ядра
    #:edge-forces #:edge-matrix #:compartment-geometry #:pressure-forces #:pressure-matrix
@@ -21,4 +22,6 @@
    #:make-body-integrator #:set-body-param
    ;; размещение и наблюдаемые
    #:arc-coords #:place-on-surface #:ring-curvatures #:weighted-centroid
-   #:volume-ratios #:+p-layout+))
+   #:volume-ratios #:+p-layout+
+   ;; запись
+   #:record-body-run))

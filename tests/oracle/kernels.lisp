@@ -65,19 +65,7 @@
         (block-entries))))
   (values))
 
-;;; Центры колец и касательные к средней линии
-
-(defun ring-centers (y rings ring-nodes centers)
-  (declare (type dvec y centers) (type index rings ring-nodes))
-  (fill centers 0d0)
-  (let ((inv (/ 1d0 ring-nodes)))
-    (dotimes (i rings)
-      (dotimes (k ring-nodes)
-        (let ((p (* 3 (+ (* i ring-nodes) k))))
-          (incf (aref centers (* 3 i)) (* inv (aref y p)))
-          (incf (aref centers (+ (* 3 i) 1)) (* inv (aref y (+ p 1))))
-          (incf (aref centers (+ (* 3 i) 2)) (* inv (aref y (+ p 2))))))))
-  (values))
+;;; Касательные к средней линии (центры колец — worm.topology:ring-centers)
 
 (defun ring-tangents (centers rings tangents)
   "Единичные касательные в кольцах по разности соседних центров."

@@ -91,9 +91,12 @@
 
 (defsystem "worm/io"
   :description "Слой 4. Кадры, файлы прогона, контрольные точки."
-  :depends-on ("worm/core" "worm/topology")
+  :depends-on ("worm/core" "worm/topology" "com.inuoe.jzon")
   :pathname "src/io/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "frames")
+               (:file "run")))
 
 (defsystem "worm/runtime"
   :description "Слой 5. Поток симуляции, команды, снимки, API для REPL."
@@ -118,7 +121,9 @@
   :description "Слой 6. Метрики походки, кимограмма, сводки."
   :depends-on ("worm/io" "worm/topology")
   :pathname "src/analysis/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "gait")))
 
 (defsystem "worm"
   :description "Симулятор локомоции C. elegans: фасадный пакет WORM для REPL."
@@ -132,16 +137,18 @@
 
 (defsystem "worm/oracle"
   :description "Ручные ядра тела и среды (этап 3): эталон для кодогенерации."
-  :depends-on ("worm/solver" "worm/topology" "worm/anatomy" "worm/params")
+  :depends-on ("worm/solver" "worm/topology" "worm/anatomy" "worm/params"
+               "worm/io" "worm/analysis")
   :pathname "tests/oracle/"
   :serial t
   :components ((:file "package")
                (:file "kernels")
-               (:file "body")))
+               (:file "body")
+               (:file "record")))
 
 (defsystem "worm/tests"
   :description "Тесты проекта (FiveAM)."
-  :depends-on ("worm" "worm/oracle" "fiveam" "usocket")
+  :depends-on ("worm" "worm/oracle" "fiveam" "usocket" "cl-base64" "cl-ppcre")
   :pathname "tests/"
   :components ((:file "package")
                (:file "suite" :depends-on ("package"))
@@ -155,5 +162,7 @@
                (:file "solver" :depends-on ("solver-models"))
                (:file "body" :depends-on ("suite"))
                (:file "physics" :depends-on ("body"))
+               (:file "io" :depends-on ("suite"))
+               (:file "analysis" :depends-on ("io"))
                (:file "server" :depends-on ("suite")))
   :perform (test-op (o c) (uiop:symbol-call :worm.tests :run-all)))

@@ -21,4 +21,4 @@
    #:node-index #:node-angle #:node-quadrant #:node-row #:+quadrants+
    #:quadrant-nodes #:long-edge-index #:quadrant-long-edges
    ;; геометрия
-   #:compartment-volume #:frustum-volume #:ring-center))
+   #:compartment-volume #:frustum-volume #:ring-center #:ring-centers #:ring-curvatures))

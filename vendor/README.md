@@ -31,10 +31,16 @@
 | trivial-garbage | https://github.com/trivial-garbage/trivial-garbage | `f0663f7b0c90` | 2026-08-29 | public domain |
 | trivial-gray-streams | https://github.com/trivial-gray-streams/trivial-gray-streams | `257d73ec3695` | 2026-08-17 | MIT |
 | usocket | https://github.com/usocket/usocket | `d492f746d33f` | 2026-05-05 | MIT |
+| closer-mop | пакет Ubuntu 24.04 `cl-closer-mop` 2:20220227.giteabdf6a-1 (апстрим github.com/pcostanza/closer-mop недоступен из песочницы) | `eabdf6a` | 2022-02-27 | MIT-подобная, см. `COPYRIGHT.debian` |
+| com.inuoe.jzon | https://github.com/Zulu-Inuoe/jzon (без каталогов тестов) | `18959fbef1af` | 2026-03-03 | MIT |
+| documentation-utils | https://github.com/Shinmera/documentation-utils | `fcbd927dee7f` | 2025-08-13 | zlib |
+| float-features | https://github.com/Shinmera/float-features (без системы тестов) | `cd5dab00d2f4` | 2025-08-13 | zlib |
+| trivial-indent | https://github.com/Shinmera/trivial-indent | `87b35ff9202b` | 2025-08-13 | zlib |
 
 Hunchentoot собирается без поддержки TLS (признак `:hunchentoot-no-ssl`
 выставляет `scripts/init.lisp`): сервер слушает только сеть «виртуалка — хост»,
 а `cl+ssl` потянул бы `cffi` и `libssl`.
 
-Библиотеки, которые понадобятся на следующих этапах (`com.inuoe.jzon`,
-`hunchensocket`), добавляются сюда тем же способом на своих этапах.
+`com.inuoe.jzon` с зависимостями (closer-mop, float-features,
+documentation-utils, trivial-indent) добавлен на этапе 4 для meta.json.
+`hunchensocket` добавится тем же способом на этапе 9.
