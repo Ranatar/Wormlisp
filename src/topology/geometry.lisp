@@ -116,3 +116,82 @@
              (let ((dn (sqrt (+ (* dx dx) (* dy dy) (* dz dz)))))
                (setf (aref out i) (/ (+ (* kx dx) (* ky dy) (* kz dz)) dn)))))
   (values))
+
+;;; Объём отсека как функция координат его 2K узлов, с градиентом и
+;;; гессианом. Треугольники — те же, что у COMPARTMENT-VOLUME: боковые
+;;; (k, k+1, K+k), (k+1, K+k+1, K+k) и торцевые веера вокруг центров колец.
+;;; Для T = a·(b×c): ∂T/∂a = b×c, ∂²T/∂a∂b = −[c]×, ∂²T/∂a∂c = [b]×,
+;;; ∂²T/∂b∂c = −[a]×; вклад центра кольца переносится на его узлы с весом
+;;; 1/K. Это общий код для любого K — значение примитивов volume,
+;;; volume-grad и volume-hess языка модели (решение 21); быстрый вариант
+;;; без выделения памяти — в ручных ядрах tests/oracle/.
+
+(defun compartment-volume-derivatives (points ring-nodes &key hessian)
+  "POINTS — 6K координат: K узлов переднего кольца, затем K заднего.
+Значения: объём, градиент (6K) и, при HESSIAN, гессиан (6K × 6K)."
+  (let* ((kk ring-nodes)
+         (n (+ (* 2 kk) 2))
+         (pts (make-array (* 3 n) :element-type 'double-float :initial-element 0d0))
+         (gext (make-array (* 3 n) :element-type 'double-float :initial-element 0d0))
+         (hext (when hessian (make-array (list (* 3 n) (* 3 n)) :element-type 'double-float
+                                                                  :initial-element 0d0)))
+         (volume 0d0))
+    ;; координаты относительно центра переднего кольца
+    (let ((o (loop for c below 3 collect (/ (loop for k below kk sum (elt points (+ (* 3 k) c))) kk))))
+      (dotimes (j (* 2 kk))
+        (dotimes (c 3) (setf (aref pts (+ (* 3 j) c)) (- (elt points (+ (* 3 j) c)) (nth c o))))))
+    (dotimes (r 2)
+      (dotimes (c 3)
+        (setf (aref pts (+ (* 3 (+ (* 2 kk) r)) c))
+              (/ (loop for k below kk sum (aref pts (+ (* 3 (+ (* r kk) k)) c))) kk))))
+    (labels ((p (j c) (aref pts (+ (* 3 j) c)))
+             (skew (row col v scale)
+               ;; H[3row…, 3col…] += scale·[v]×
+               (let ((r (* 3 row)) (c (* 3 col)))
+                 (decf (aref hext r (+ c 1)) (* scale (third v))) (incf (aref hext r (+ c 2)) (* scale (second v)))
+                 (incf (aref hext (+ r 1) c) (* scale (third v))) (decf (aref hext (+ r 1) (+ c 2)) (* scale (first v)))
+                 (decf (aref hext (+ r 2) c) (* scale (second v))) (incf (aref hext (+ r 2) (+ c 1)) (* scale (first v)))))
+             (cross (a b) (list (- (* (second a) (third b)) (* (third a) (second b)))
+                                (- (* (third a) (first b)) (* (first a) (third b)))
+                                (- (* (first a) (second b)) (* (second a) (first b)))))
+             (tri (ia ib ic)
+               (let* ((a (list (p ia 0) (p ia 1) (p ia 2)))
+                      (b (list (p ib 0) (p ib 1) (p ib 2)))
+                      (c (list (p ic 0) (p ic 1) (p ic 2)))
+                      (bc (cross b c)) (ca (cross c a)) (ab (cross a b)))
+                 (incf volume (/ (reduce #'+ (mapcar #'* a bc)) 6d0))
+                 (dotimes (q 3)
+                   (incf (aref gext (+ (* 3 ia) q)) (/ (nth q bc) 6d0))
+                   (incf (aref gext (+ (* 3 ib) q)) (/ (nth q ca) 6d0))
+                   (incf (aref gext (+ (* 3 ic) q)) (/ (nth q ab) 6d0)))
+                 (when hessian
+                   (let ((s (/ 1d0 6d0)))
+                     (skew ia ib c (- s)) (skew ib ia c s)
+                     (skew ia ic b s) (skew ic ia b (- s))
+                     (skew ib ic a (- s)) (skew ic ib a s))))))
+      (dotimes (k kk)
+        (let ((k1 (mod (1+ k) kk)))
+          (tri k k1 (+ kk k))
+          (tri k1 (+ kk k1) (+ kk k))
+          (tri (* 2 kk) k1 k)
+          (tri (1+ (* 2 kk)) (+ kk k) (+ kk k1)))))
+    (let* ((m (* 6 kk))
+           (grad (make-array m :element-type 'double-float))
+           (hess (when hessian (make-array (list m m) :element-type 'double-float)))
+           (inv (/ 1d0 kk)))
+      (dotimes (j (* 2 kk))
+        (let ((o (+ (* 2 kk) (floor j kk))))
+          (dotimes (q 3)
+            (setf (aref grad (+ (* 3 j) q)) (+ (aref gext (+ (* 3 j) q)) (* inv (aref gext (+ (* 3 o) q))))))))
+      (when hessian
+        (dotimes (j (* 2 kk))
+          (dotimes (m2 (* 2 kk))
+            (let ((oj (+ (* 2 kk) (floor j kk))) (om (+ (* 2 kk) (floor m2 kk))))
+              (dotimes (r 3)
+                (dotimes (s 3)
+                  (setf (aref hess (+ (* 3 j) r) (+ (* 3 m2) s))
+                        (+ (aref hext (+ (* 3 j) r) (+ (* 3 m2) s))
+                           (* inv (+ (aref hext (+ (* 3 j) r) (+ (* 3 om) s))
+                                     (aref hext (+ (* 3 oj) r) (+ (* 3 m2) s))))
+                           (* inv inv (aref hext (+ (* 3 oj) r) (+ (* 3 om) s)))))))))))
+      (values volume grad hess))))

@@ -29,7 +29,12 @@
   :description "Слой 1. Промежуточное представление выражений."
   :depends-on ("worm/core")
   :pathname "src/ir/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "graph")
+               (:file "primitives")
+               (:file "derivative")
+               (:file "eval")))
 
 (defsystem "worm/topology"
   :description "Слой 1. Трубка N x K: узлы, семейства элементов, геометрия."
@@ -65,7 +70,15 @@
   :description "Слой 2. define-component, defmodel, связывание."
   :depends-on ("worm/ir" "worm/topology" "worm/anatomy" "worm/params")
   :pathname "src/dsl/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "conditions")
+               (:file "families")
+               (:file "component")
+               (:file "primitives")
+               (:file "lower")
+               (:file "model")
+               (:file "interpret")))
 
 (defsystem "worm/components"
   :description "Слой 3. Тело, мышцы, управление, среда на DSL."
@@ -149,7 +162,7 @@
 
 (defsystem "worm/tests"
   :description "Тесты проекта (FiveAM)."
-  :depends-on ("worm" "worm/oracle" "fiveam" "usocket" "cl-base64" "cl-ppcre")
+  :depends-on ("worm" "worm/oracle" "worm/dsl" "fiveam" "usocket" "cl-base64" "cl-ppcre")
   :pathname "tests/"
   :components ((:file "package")
                (:file "suite" :depends-on ("package"))
@@ -164,6 +177,8 @@
                (:file "body" :depends-on ("suite"))
                (:file "physics" :depends-on ("body"))
                (:file "muscle" :depends-on ("suite"))
+               (:file "ir" :depends-on ("suite"))
+               (:file "dsl" :depends-on ("body"))
                (:file "io" :depends-on ("suite"))
                (:file "analysis" :depends-on ("io"))
                (:file "server" :depends-on ("suite")))
