@@ -7,14 +7,23 @@
 
 (defsystem "worm/platform"
   :description "Слой 0. Всё SBCL-специфичное."
+  :depends-on ((:require "sb-md5"))
   :pathname "src/platform/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "platform")))
 
 (defsystem "worm/core"
   :description "Слой 0. Типы, корневые условия, журнал, compiled-model."
   :depends-on ("worm/platform")
   :pathname "src/core/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "project")
+               (:file "types")
+               (:file "conditions")
+               (:file "log")
+               (:file "model")))
 
 (defsystem "worm/ir"
   :description "Слой 1. Промежуточное представление выражений."
@@ -26,19 +35,31 @@
   :description "Слой 1. Трубка N x K: узлы, семейства элементов, геометрия."
   :depends-on ("worm/core")
   :pathname "src/topology/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "tube")
+               (:file "geometry")))
 
 (defsystem "worm/anatomy"
   :description "Слой 1. Мышцы, нейроны, синапсы, профиль радиуса."
   :depends-on ("worm/core")
   :pathname "src/anatomy/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "muscles")
+               (:file "anatomy")))
 
 (defsystem "worm/params"
   :description "Слой 1. Реестр параметров, единицы, наборы."
   :depends-on ("worm/core")
   :pathname "src/params/"
-  :components ((:file "package")))
+  :serial t
+  :components ((:file "package")
+               (:file "units")
+               (:file "conditions")
+               (:file "registry")
+               (:file "sets")
+               (:file "catalog")))
 
 (defsystem "worm/dsl"
   :description "Слой 2. define-component, defmodel, связывание."
@@ -113,5 +134,9 @@
                (:file "suite" :depends-on ("package"))
                (:file "structure" :depends-on ("suite"))
                (:file "platform" :depends-on ("suite"))
+               (:file "core" :depends-on ("suite"))
+               (:file "params" :depends-on ("suite"))
+               (:file "topology" :depends-on ("suite"))
+               (:file "anatomy" :depends-on ("suite"))
                (:file "server" :depends-on ("suite")))
   :perform (test-op (o c) (uiop:symbol-call :worm.tests :run-all)))

@@ -4,8 +4,9 @@
 тело, мышцы с кальциевой кинетикой, три уровня нервного управления и среда по
 теории резистивных сил.
 
-Сейчас сделан **этап 0**: каркас репозитория, все системы-заглушки, тесты,
-REPL в tmux и проверочная страница на порту 8740.
+Сделаны **этапы 0 и 1**: каркас репозитория, REPL в tmux, проверочная страница
+на порту 8740; нижние слои — типы и условия, журнал, реестр параметров с
+единицами, трубка N × K с величинами покоя и 95 мышц с привязкой к рёбрам.
 
 ## Окружение
 
@@ -70,11 +71,13 @@ Makefile            test, test-full, image, repl, clean
 src/<система>/      worm/platform, worm/core, … worm/analysis
 src/package.lisp    фасадный пакет WORM и пакет WORM-USER
 tests/              FiveAM; tests/structure.lisp сверяет слои с архитектурой
-scripts/            init.lisp, repl.sh, run-tests.lisp, build-image.lisp
+scripts/            init.lisp, repl.sh, run-tests.lisp, build-image.lisp, make-muscles.lisp
 vendor/             библиотеки с закреплёнными коммитами
 tools/firefox/      Firefox 115 для Linux частями; tools/firefox/install.sh
 docs/               документация проекта (главная копия)
-anatomy/ params/ configs/ sweeps/ viewer/ bench/   заполняются на своих этапах
+params/             наборы параметров: base-v1, water-v1, agar-a-v1, agar-c-v1
+anatomy/            muscles.sexp — 95 мышц (порождается scripts/make-muscles.lisp)
+configs/ sweeps/ viewer/ bench/   заполняются на своих этапах
 ```
 
 ## Документы проекта

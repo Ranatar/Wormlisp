@@ -1,44 +1,33 @@
 ;;;; src/core/package.lisp
 ;;;;
-;;;; Слой 0. Общие вещи всего проекта. На этапе 0 — только сведения о
-;;;; самом проекте: корень репозитория и ревизия git, которые потом попадут
-;;;; в meta.json каждого прогона. Типы массивов, корневые условия, журнал и
-;;;; структура compiled-model придут на этапе 1.
+;;;; Слой 0. Общие вещи всего проекта: сведения о репозитории, типы
+;;;; массивов горячего пути, корневые условия, журнал и структура
+;;;; compiled-model — единственное, что решатель знает о модели.
 
 (defpackage #:worm.core
   (:use #:cl)
-  (:export #:project-root
-           #:git-revision))
-
-(in-package #:worm.core)
-
-(defun project-root ()
-  "Корень репозитория — каталог, где лежит worm.asd."
-  (asdf:system-source-directory "worm/core"))
-
-(defun read-first-line (path)
-  (with-open-file (in path :if-does-not-exist nil)
-    (and in (string-trim '(#\Space #\Tab #\Return) (or (read-line in nil) "")))))
-
-(defun packed-ref (git-dir ref)
-  "Хэш ссылки REF из .git/packed-refs или NIL."
-  (with-open-file (in (merge-pathnames "packed-refs" git-dir) :if-does-not-exist nil)
-    (when in
-      (loop for line = (read-line in nil)
-            while line
-            do (let ((space (position #\Space line)))
-                 (when (and space (string= ref (subseq line (1+ space))))
-                   (return (subseq line 0 space))))))))
-
-(defun git-revision ()
-  "Полный хэш текущего коммита, прочитанный из .git без запуска git.
-Возвращает NIL, если репозитория нет или ссылку прочитать не удалось."
-  (let* ((git-dir (merge-pathnames ".git/" (project-root)))
-         (head (read-first-line (merge-pathnames "HEAD" git-dir))))
-    (cond ((null head) nil)
-          ((and (> (length head) 5) (string= "ref: " head :end2 5))
-           (let ((ref (subseq head 5)))
-             (or (read-first-line (merge-pathnames ref git-dir))
-                 (packed-ref git-dir ref))))
-          ((= (length head) 40) head)
-          (t nil))))
+  (:export
+   ;; проект
+   #:project-root #:git-revision
+   ;; типы массивов
+   #:dvec #:fvec #:ivec #:index
+   #:make-dvec #:make-fvec #:make-ivec #:dvec-from #:ivec-from
+   ;; числа
+   #:+pi+ #:sq #:approx=
+   ;; условия
+   #:worm-error #:worm-error-message
+   #:model-error #:codegen-error #:params-error
+   #:numerical-error #:io-error #:protocol-error
+   #:signal-worm-error
+   ;; журнал
+   #:*log-echo* #:*log-level* #:log-event #:log-path #:close-log
+   ;; модель
+   #:compiled-model #:make-compiled-model #:compiled-model-p
+   #:compiled-model-name #:compiled-model-hash #:compiled-model-layout
+   #:compiled-model-n-mech #:compiled-model-n-neural #:compiled-model-n-discrete
+   #:compiled-model-lower-band #:compiled-model-upper-band
+   #:compiled-model-topology #:compiled-model-anatomy
+   #:compiled-model-mech-forces #:compiled-model-mech-matrix
+   #:compiled-model-neural-rhs #:compiled-model-neural-jacobian
+   #:compiled-model-neural-discrete #:compiled-model-event-functions
+   #:compiled-model-observables))
