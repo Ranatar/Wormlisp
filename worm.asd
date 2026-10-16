@@ -133,10 +133,13 @@
 
 (defsystem "worm/server"
   :description "Слой 6. HTTP и WebSocket, протокол живого просмотра."
-  :depends-on ("worm/runtime" "worm/io" "hunchentoot")
+  :depends-on ("worm/runtime" "worm/io" "hunchentoot" "hunchensocket")
   :pathname "src/server/"
+  :serial t
   :components ((:file "package")
-               (:file "check-page" :depends-on ("package"))))
+               (:file "routes")
+               (:file "check-page")
+               (:file "live")))
 
 (defsystem "worm/batch"
   :description "Слой 6. Развёртки, оркестратор, рабочие процессы."
@@ -200,5 +203,6 @@
                (:file "runtime-repl" :depends-on ("runtime" "physics"))
                (:file "io" :depends-on ("suite"))
                (:file "analysis" :depends-on ("io"))
-               (:file "server" :depends-on ("suite")))
+               (:file "server" :depends-on ("runtime"))
+               (:file "live" :depends-on ("server")))
   :perform (test-op (o c) (uiop:symbol-call :worm.tests :run-all)))

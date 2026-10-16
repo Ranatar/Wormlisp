@@ -36,6 +36,9 @@
 | documentation-utils | https://github.com/Shinmera/documentation-utils | `fcbd927dee7f` | 2025-08-13 | zlib |
 | float-features | https://github.com/Shinmera/float-features (без системы тестов) | `cd5dab00d2f4` | 2025-08-13 | zlib |
 | trivial-indent | https://github.com/Shinmera/trivial-indent | `87b35ff9202b` | 2025-08-13 | zlib |
+| hunchensocket | https://github.com/joaotavora/hunchensocket (без системы тестов) | `8f90c5b0a5d5` | 2024-10-17 | MIT |
+| sha1 | https://github.com/massung/sha1 | `be8b1b155c3a` | 2021-08-26 | Apache-2.0 |
+| trivial-utf-8 | пакет Ubuntu 24.04 `cl-trivial-utf-8` 20111001-1.1 (апстрим на gitlab.common-lisp.net недоступен из песочницы; без системы тестов) | 20111001 | 2011-10-01 | zlib-подобная, см. `COPYRIGHT.debian` |
 
 Hunchentoot собирается без поддержки TLS (признак `:hunchentoot-no-ssl`
 выставляет `scripts/init.lisp`): сервер слушает только сеть «виртуалка — хост»,
@@ -43,4 +46,5 @@ Hunchentoot собирается без поддержки TLS (признак `
 
 `com.inuoe.jzon` с зависимостями (closer-mop, float-features,
 documentation-utils, trivial-indent) добавлен на этапе 4 для meta.json.
-`hunchensocket` добавится тем же способом на этапе 9.
+`hunchensocket` с зависимостями `sha1` и `trivial-utf-8` добавлен на этапе 9
+для WebSocket `/live`.

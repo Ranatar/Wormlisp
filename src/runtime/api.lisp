@@ -21,6 +21,15 @@
     (worm.platform:mailbox-send (run-mailbox run) (list* op promise args))
     promise))
 
+(defun post-command (run op &rest args)
+  "Отправить команду, не дожидаясь ответа (так команды шлёт сервер);
+возвращает обещание."
+  (apply #'send run op args))
+
+(defun find-run (id)
+  "Прогон процесса по идентификатору."
+  (find id *runs* :key #'run-id :test #'string=))
+
 (defun command (run op &rest args)
   "Отправить команду и дождаться ответа."
   (await (apply #'send run op args)))
@@ -149,7 +158,29 @@
                                    name (compiled-model-name (run-model run)) (compiled-model-name (run-model run)))))
           (t index))))
 
-(defun set-param (name value &key unit run)
+(defun check-bounds (spec key value unit internal)
+  (let ((bounds (worm.params:parameter-spec-bounds spec)))
+    (when (and bounds (not (<= (first bounds) internal (second bounds))))
+      (error 'worm.params:out-of-bounds
+                     :message (let ((u (display-unit spec)))
+                                (format nil "~(~A~) = ~G~@[ ~(~A~)~] вне границ [~G, ~G]~@[ ~(~A~)~]" key value (or unit u)
+                                        (if u (worm.params:from-internal (first bounds) u) (first bounds))
+                                        (if u (worm.params:from-internal (second bounds) u) (second bounds))
+                                        u))))))
+
+(defun prepare-param-change (run name value &key unit)
+  "Проверить правку и вернуть (values имя-ключ индекс внутреннее-значение);
+ошибки — как у SET-PARAM, но без перезапусков."
+  (let* ((spec (spec-of name))
+         (key (worm.params:parameter-spec-name spec))
+         (index (check-live run spec))
+         (internal (if (realp value)
+                       (to-internal-value spec value unit)
+                       (error 'run-error :message (format nil "~(~A~): значение ~S — не число" key value)))))
+    (check-bounds spec key value unit internal)
+    (values key index internal)))
+
+(defun set-param (name value &key unit run (source :repl))
   "Изменить параметр на ходу. VALUE — в единицах реестра (или UNIT).
 Параметр без живой правки отвергается с объяснением; значение вне границ —
 условие out-of-bounds с перезапусками use-value и keep-old-value."
@@ -160,15 +191,8 @@
          (internal (to-internal-value spec value unit)))
     (restart-case
         (progn
-          (let ((bounds (worm.params:parameter-spec-bounds spec)))
-            (when (and bounds (not (<= (first bounds) internal (second bounds))))
-              (error 'worm.params:out-of-bounds
-                     :message (let ((u (display-unit spec)))
-                                (format nil "~(~A~) = ~G~@[ ~(~A~)~] вне границ [~G, ~G]~@[ ~(~A~)~]" key value (or unit u)
-                                        (if u (worm.params:from-internal (first bounds) u) (first bounds))
-                                        (if u (worm.params:from-internal (second bounds) u) (second bounds))
-                                        u)))))
-          (second (command run :set-param key index internal)))
+          (check-bounds spec key value unit internal)
+          (second (command run :set-param key index internal source)))
       (use-value (v)
         :report "Задать другое значение (в единицах реестра)."
         :interactive (lambda () (format *query-io* "Значение: ") (list (read *query-io*)))
@@ -355,6 +379,63 @@
     (unless (eq was :paused) (pause run))
     (prog1 (command run :replace model set keep-params)
       (when (member was '(:running :stepping)) (resume run)))))
+
+;;; Описание прогона для клиентов
+
+(defun shown-value (spec internal)
+  (let ((u (and spec (display-unit spec))))
+    (if (and u (realp internal)) (worm.params:from-internal internal u) internal)))
+
+(defun run-parameters (&optional run)
+  "Параметры прогона: список plist (:name :value :unit :min :max :live :doc).
+Живые — те, что можно править на ходу (решение 25)."
+  (let* ((run (the-run run))
+         (model (run-model run))
+         (p (worm.solver:integrator-params (run-integrator run)))
+         (set (run-param-set run))
+         (names (union (coerce (worm.codegen:model-param-names model) 'list) (worm.params:param-names set))))
+    (loop for name in (sort (copy-list names) #'string< :key #'symbol-name)
+          for spec = (worm.params:find-parameter name nil)
+          for index = (param-index model name)
+          for internal = (if index (aref p index)
+                             (let ((e (worm.params:param-entry-of set name))) (and e (worm.params:param-entry-value e))))
+          for bounds = (and spec (worm.params:parameter-spec-bounds spec))
+          when (realp internal)
+            collect (list :name name :value (shown-value spec internal)
+                          :unit (and spec (display-unit spec))
+                          :min (and bounds (shown-value spec (first bounds)))
+                          :max (and bounds (shown-value spec (second bounds)))
+                          :live (and spec index (worm.params:parameter-spec-live-p spec) t)
+                          :doc (if spec (worm.params:parameter-spec-doc spec) "")))))
+
+(defun run-description (&optional run)
+  "Сведения о прогоне для клиентов: plist."
+  (let* ((run (the-run run))
+         (model (run-model run))
+         (tube (compiled-model-topology model))
+         (anatomy (compiled-model-anatomy model))
+         (it (run-integrator run)))
+    (list :id (run-id run) :model (compiled-model-name model) :medium (worm.codegen:model-medium model)
+          :params (worm.params:param-set-name (run-param-set run))
+          :rings (worm.topology:tube-rings tube) :ring-nodes (worm.topology:tube-ring-nodes tube)
+          :length (worm.topology:tube-length tube) :radius-max (worm.topology:tube-radius-max tube)
+          :h (worm.solver:integrator-h it)
+          :muscles (if anatomy
+                       (map 'list (lambda (m) (list :name (worm.anatomy:muscle-name m)
+                                                    :quadrant (worm.anatomy:muscle-quadrant m)
+                                                    :row (worm.anatomy:muscle-row m)
+                                                    :from (worm.anatomy:muscle-from m)
+                                                    :peak (worm.anatomy:muscle-peak m)
+                                                    :to (worm.anatomy:muscle-to m)))
+                            (worm.anatomy:anatomy-muscles anatomy))
+                       '()))))
+
+(defun run-param-change-log (&optional run)
+  "Правки параметров: ((шаг имя старое новое источник) …), новые первыми;
+значения — в единицах реестра."
+  (loop for (step name old new source) in (run-param-changes (the-run run))
+        for spec = (worm.params:find-parameter name nil)
+        collect (list step name (shown-value spec old) (shown-value spec new) source)))
 
 (defun list-runs ()
   "Прогоны процесса: (id модель состояние шаг)."

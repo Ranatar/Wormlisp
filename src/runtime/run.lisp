@@ -90,7 +90,7 @@
   (checkpoint-every 0)      ; шагов между точками на диске; 0 — только по команде
   log-stream
   (started "")
-  (param-changes '())       ; ((шаг имя старое новое) …), новые первыми
+  (param-changes '())       ; ((шаг имя старое новое источник) …), новые первыми
   (disk-checkpoints '())    ; пути, новые первыми
   (frames-written 0)        ; кадров в закрытом файле текущего каталога
   (restarts-logged 0)       ; сколько перезапусков решателя уже в log.txt
@@ -158,7 +158,11 @@
 
 (defun publish-snapshot (run)
   "Новый снимок в ячейку: единственное место, где поток симуляции выделяет
-память, — вне шага."
+память, — вне шага. Ловушки плавающей точки здесь выключены: снимок
+состояния со сбоем (NaN) показывают как есть, а не роняют поток."
+  (worm.platform:with-float-traps-masked () (%publish-snapshot run)))
+
+(defun %publish-snapshot (run)
   (let* ((it (run-integrator run))
          (model (run-model run))
          (y (worm.solver:integrator-y-mech it))
@@ -175,6 +179,9 @@
                     :rings rings :ring-nodes kk))))
 
 (defun write-current-frame (run)
+  (worm.platform:with-float-traps-masked () (%write-current-frame run)))
+
+(defun %write-current-frame (run)
   (let ((it (run-integrator run)))
     (worm.io:write-frame (run-writer run) (worm.solver:integrator-step it) (worm.solver:integrator-time it)
                          (worm.solver:integrator-y-mech it) (compute-activations run))))
@@ -240,11 +247,12 @@
       "frames" (worm.io:json-object "every" (* (run-frame-every run) (worm.solver:integrator-h it))
                                     "count" (if writer (worm.io:frames-writer-count writer) (run-frames-written run)))
       "restarts" (map 'vector (lambda (r) (format nil "~(~{~A~^ ~}~)" r)) (reverse (worm.solver:integrator-restarts it)))
-      "paramChanges" (map 'vector (lambda (c) (destructuring-bind (step name old new) c
+      "paramChanges" (map 'vector (lambda (c) (destructuring-bind (step name old new &optional source) c
                                                 (worm.io:json-object "step" step "name" (string-downcase name)
-                                                                     "from" old "to" new)))
+                                                                     "from" old "to" new
+                                                                     "source" (string-downcase (or source :repl)))))
                           (reverse (run-param-changes run)))
-      "unreliable" (if (worm.solver:integrator-unreliable-p it) t 'false)
+      "unreliable" (and (worm.solver:integrator-unreliable-p it) t)
       "started" (run-started run) "finished" (or finished 'null)
       "topology" (worm.io:json-object "rings" (worm.topology:tube-rings tube)
                                       "ringNodes" (worm.topology:tube-ring-nodes tube)

@@ -16,6 +16,15 @@
     (loop for (k v) on pairs by #'cddr do (setf (gethash k h) v))
     h))
 
+(defun json-string (object)
+  "Текст JSON одной строкой."
+  (com.inuoe.jzon:stringify object))
+
+(defun parse-json (string)
+  "Разобрать JSON; объекты — хэш-таблицы с ключами-строками. Ошибка — условие
+com.inuoe.jzon:json-parse-error."
+  (com.inuoe.jzon:parse string))
+
 (defun write-json-file (path object)
   (ensure-directories-exist path)
   (with-open-file (out path :direction :output :if-exists :supersede

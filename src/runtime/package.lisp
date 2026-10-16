@@ -20,4 +20,7 @@
    #:problem #:problem-p #:problem-cause #:problem-step #:problem-time #:problem-h #:problem-where
    #:problem-restarts #:problem-report #:problem-condition #:run-problem #:choose #:debug-problem
    #:rebuild
+   ;; для сервера
+   #:post-command #:find-run #:prepare-param-change #:run-parameters #:run-description
+   #:run-param-change-log #:*runs*
    #:run-error #:run-timeout))

@@ -105,12 +105,12 @@
   (when problem
     (error 'run-error :message (format nil "прогон ждёт решения о сбое — (problem), (choose …); команда ~(~S~) отложена до решения" op))))
 
-(defun apply-param (run name index value)
+(defun apply-param (run name index value &optional (source :repl))
   (let* ((p (worm.solver:integrator-params (run-integrator run)))
          (old (aref p index)))
     (setf (aref p index) value)
     (worm.solver:invalidate-factorization (run-integrator run))
-    (push (list (worm.solver:integrator-step (run-integrator run)) name old value) (run-param-changes run))
+    (push (list (worm.solver:integrator-step (run-integrator run)) name old value source) (run-param-changes run))
     (let ((unit (worm.params:parameter-spec-unit (worm.params:find-parameter name))))
       (flet ((shown (x) (if unit (worm.params:from-internal x unit) x)))
         (run-log run "~(~A~): ~,6G → ~,6G~@[ ~(~A~)~]" name (shown old) (shown value) unit)))

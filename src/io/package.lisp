@@ -18,7 +18,7 @@
    #:frames-file #:read-frames-file #:frames-file-count #:frames-file-nodes
    #:frames-file-muscles #:frames-file-neurons #:frames-file-frame-size #:frame-ref
    ;; meta.json и каталог прогона
-   #:write-json-file #:read-json-file #:json-object
+   #:write-json-file #:read-json-file #:json-object #:json-string #:parse-json
    #:make-run-id #:runs-directory #:make-run-directory #:write-status #:read-status
    #:run-file
    ;; контрольные точки

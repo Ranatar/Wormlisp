@@ -220,6 +220,28 @@
     (is (> (worm.runtime:snapshot-step (worm.runtime:snapshot run)) 100) "после отката счёт идёт дальше")
     (signals worm.runtime:run-error (worm.runtime:choose 'abort-run run))))
 
+(defun poison-state (run)
+  "NaN в координате: шаг падает на недопустимой операции."
+  (worm.runtime:call-in-run
+   (lambda (r) (setf (aref (worm.solver:integrator-y-mech (worm.runtime:run-integrator r)) 40)
+                     (worm.platform:with-float-traps-masked ()
+                       (- sb-ext:double-float-positive-infinity sb-ext:double-float-positive-infinity))))
+   run))
+
+(test nan-failure-waits-for-a-choice-too
+  ;; снимок состояния с NaN не должен ронять поток симуляции
+  (with-test-run (run "problem-nan")
+    (worm.runtime:step-run 60 run)
+    (poison-state run)
+    (worm.runtime:resume run)
+    (is (eq :problem (worm.runtime:wait-run :run run :status '(:problem :failed) :timeout 30)))
+    (is (eq :invalid (worm.runtime:problem-cause (worm.runtime:run-problem run))))
+    (is (eq 'worm.solver:rollback-to-checkpoint (worm.runtime:choose 'rollback-to-checkpoint run)))
+    (sleep 0.2)
+    (worm.runtime:pause run)
+    (is (eq :paused (worm.runtime:run-status run)))
+    (is (> (worm.runtime:snapshot-step (worm.runtime:snapshot run)) 60))))
+
 (test stop-during-a-problem-and-batch-policy
   (with-test-run (run "problem-stop")
     (worm.runtime:step-run 30 run)
@@ -233,10 +255,7 @@
   ;; состоянии начала шага уменьшением h не лечится
   (with-test-run (run "batch" :policy :batch)
     (worm.runtime:step-run 30 run)
-    (worm.runtime:call-in-run (lambda (r) (setf (aref (worm.solver:integrator-y-mech (worm.runtime:run-integrator r)) 40)
-                                                (worm.platform:with-float-traps-masked ()
-                                                  (- sb-ext:double-float-positive-infinity sb-ext:double-float-positive-infinity))))
-                              run)
+    (poison-state run)
     (worm.runtime:resume run)
     (is (eq :failed (worm.runtime:wait-run :run run :status '(:failed :done) :timeout 30)))
     (let ((restarts (mapcar #'second (worm.solver:integrator-restarts (worm.runtime:run-integrator run)))))

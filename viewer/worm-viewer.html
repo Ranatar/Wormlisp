@@ -7,9 +7,10 @@
 <!--
   viewer/worm-viewer.html — просмотрщик прогонов Wormlisp (архитектура, «Просмотрщик»).
 
-  Режимы: записанный прогон с диска (frames.bin и meta.json через выбор
-  файлов) и с сервера (?run=<id>, этап 9). ?selftest — самопроверка разбора
-  кадров на эталоне tests/data/frames.bin.
+  Режимы: живой прогон с сервера (по умолчанию, когда страница открыта с
+  сервера; ?live=<id> — выбранный прогон), записанный прогон с сервера
+  (?run=<id>) и с диска (frames.bin и meta.json через выбор файлов).
+  ?selftest — самопроверка разбора кадров на эталоне tests/data/frames.bin.
 
   Только то, что умеют Firefox 115 и Chrome 109: обычные скрипты без модулей
   и сборщиков, Three.js r128 и OrbitControls из lib/ рядом с этим файлом.
@@ -70,6 +71,29 @@
   #selftest table { border-collapse: collapse; margin-top: 14px; font-size: 13px; }
   #selftest td { padding: 3px 14px 3px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
   #selftest td.ok { color: var(--ok); } #selftest td.bad { color: var(--bad); font-weight: 600; }
+  #runs { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: #fff; max-width: 280px; }
+  .live-only { display: none; } body.live .live-only { display: inline-flex; } body.live .file-only { display: none; }
+  body.live aside .live-only { display: block; }
+  #live-badge { background: var(--accent); color: #fff; border-radius: 10px; padding: 1px 8px; font-size: 12px; }
+  #problem { position: absolute; left: 12px; right: 12px; top: 12px; background: #fff6f3; border: 1px solid var(--accent);
+             border-radius: 8px; padding: 10px 12px; display: none; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+  #problem.on { display: block; }
+  #problem b { color: var(--bad); }
+  #problem .msg { font-size: 12px; color: var(--muted); margin: 4px 0 8px; font-family: var(--mono); }
+  #problem button { font: inherit; border: 1px solid var(--accent); background: #fff; border-radius: 6px; padding: 3px 9px;
+                    margin: 0 6px 4px 0; cursor: pointer; }
+  #problem button:hover { background: var(--accent-soft); }
+  #toast { position: fixed; right: 16px; bottom: 56px; max-width: 420px; background: #1f2421; color: #fff; padding: 8px 12px;
+           border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.on { opacity: .92; }
+  #params { display: grid; grid-template-columns: 1fr 96px auto; gap: 3px 6px; font-size: 12px; align-items: center; }
+  #params .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #params .name.fixed { color: var(--muted); }
+  #params input { font: 12px var(--mono); width: 96px; padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px; }
+  #params input.changed { border-color: var(--ok); }
+  #params .val { font-family: var(--mono); color: var(--muted); text-align: right; }
+  #params .unit { color: var(--muted); }
+  #param-filter { width: 100%; font: inherit; margin-bottom: 6px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; }
                               aside { border-left: 0; border-top: 1px solid var(--line); } }
 </style>
@@ -77,9 +101,11 @@
 <body>
 <header>
   <h1>Wormlisp <span>· просмотр прогона</span></h1>
+  <span id="live-badge" class="live-only">живой</span>
   <label class="file">Открыть frames.bin и meta.json…
     <input id="files" type="file" multiple accept=".bin,.json">
   </label>
+  <select id="runs" hidden title="Прогоны на сервере"><option value="">прогоны на сервере…</option></select>
   <div class="info" id="info">Прогон не загружен</div>
 </header>
 <main>
@@ -87,6 +113,8 @@
     <canvas id="scene"></canvas>
     <div id="scene-note">Выберите frames.bin и meta.json из каталога прогона runs/&lt;id&gt;/.</div>
     <div id="legend" hidden>активация мышц <i></i> 0 … 1</div>
+    <div id="problem"><b id="problem-cause"></b> <span id="problem-where"></span>
+      <div class="msg" id="problem-msg"></div><div id="problem-buttons"></div></div>
   </div>
   <aside>
     <h2>Кимограмма кривизны</h2>
@@ -98,13 +126,25 @@
     <canvas id="freq" class="chart chart-small"></canvas>
     <h2>Метрики прогона</h2>
     <div class="metrics" id="metrics"><span>—</span><span></span></div>
+    <div class="live-only">
+      <h2>Параметры</h2>
+      <input id="param-filter" placeholder="фильтр по имени">
+      <div id="params"></div>
+    </div>
   </aside>
 </main>
 <footer>
-  <button id="play" disabled>▶ Пуск</button>
+  <button id="run-pause" class="live-only" title="Пауза прогона">❚❚ Прогон</button>
+  <button id="run-resume" class="live-only" title="Продолжить прогон">▶ Прогон</button>
+  <button id="run-step" class="live-only" title="Сделать 100 шагов">+100 шагов</button>
+  <select id="fps" class="live-only" title="Кадров в секунду с сервера">
+    <option value="5">5 к/с</option><option value="10">10 к/с</option><option value="20" selected>20 к/с</option><option value="30">30 к/с</option>
+  </select>
+  <label class="live-only"><input type="checkbox" id="latest" checked> последний кадр</label>
+  <button id="play" class="file-only" disabled>▶ Пуск</button>
   <button id="back" disabled title="Кадр назад">◀︎</button>
   <button id="fwd" disabled title="Кадр вперёд">▶︎</button>
-  <select id="rate" title="Скорость воспроизведения">
+  <select id="rate" class="file-only" title="Скорость воспроизведения">
     <option value="0.1">0,1×</option><option value="0.25">0,25×</option><option value="0.5">0,5×</option>
     <option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option>
   </select>
@@ -113,6 +153,7 @@
   <span id="status">—</span>
 </footer>
 <div id="selftest"></div>
+<div id="toast"></div>
 
 <script src="lib/three.min.js"></script>
 <script src="lib/OrbitControls.js"></script>
@@ -342,7 +383,9 @@ function drawFrame(k) {
   if (!run) return;
   current = k;
   var f = run.file.frame(k), rings = run.rings, K = run.K;
-  if (three && three.mesh) {
+  var finite = true;
+  for (var z = 0; z < f.coords.length; z++) if (!isFinite(f.coords[z])) { finite = false; break; }
+  if (three && three.mesh && finite) {
     var pos = three.mesh.geometry.attributes.position, col = three.mesh.geometry.attributes.color;
     var c = f.coords, pa = pos.array, ca = col.array, cen = run.poses[k].centers;
     pa.set(c);
@@ -370,8 +413,15 @@ function drawFrame(k) {
   }
   $("slider").value = k;
   var dt = (run.meta.dt && run.meta.dt.length) ? run.meta.dt[run.meta.dt.length - 1].value : NaN;
-  $("status").textContent = "кадр " + (k + 1) + "/" + run.file.count + "  шаг " + f.step +
-    "  t = " + f.time.toFixed(3) + " с  h = " + (isFinite(dt) ? dt.toExponential(1) : "—") + " с";
+  if (live) {
+    var st = live.status || {};
+    if (isFinite(st.h)) dt = st.h;
+    $("status").textContent = (st.status || "—") + "  шаг " + f.step + "  t = " + f.time.toFixed(3) + " с  h = " +
+      (isFinite(dt) ? dt.toExponential(1) : "—") + " с  " + live.fps.toFixed(0) + " к/с  отставание " +
+      Math.max(0, (st.step || f.step) - f.step) + " шагов";
+  } else
+    $("status").textContent = "кадр " + (k + 1) + "/" + run.file.count + "  шаг " + f.step +
+      "  t = " + f.time.toFixed(3) + " с  h = " + (isFinite(dt) ? dt.toExponential(1) : "—") + " с";
   drawCharts();
 }
 
@@ -413,6 +463,7 @@ function curvatureColor(v) {
 
 function buildKymogram() {
   var n = run.times.length, rings = run.rings, vals = [];
+  if (!n) { kymoImage = null; return; }
   run.curv.forEach(function (row) { for (var i = 1; i < rings - 1; i++) vals.push(Math.abs(row[i])); });
   vals.sort(function (a, b) { return a - b; });
   kymoScale = vals.length ? (vals[Math.floor(0.98 * (vals.length - 1))] || 1) : 1;
@@ -475,6 +526,17 @@ function lineChart(canvas, series, color) {
 function loadRun(buffer, meta) {
   var file = parseFramesFile(buffer);
   run = analyse(file, meta);
+  setupRun(meta);
+  buildKymogram();
+  showRunInfo();
+  ["play", "back", "fwd", "slider"].forEach(function (id) { $(id).disabled = false; });
+  $("slider").max = file.count - 1;
+  playTime = run.times[0];
+  resize();
+  drawFrame(0);
+}
+
+function setupRun(meta) {
   if (!three) three = buildScene();
   if (three) {
     if (three.mesh) three.scene.remove(three.mesh);
@@ -485,20 +547,24 @@ function loadRun(buffer, meta) {
       var L = (meta.topology && meta.topology.length) || 1;
       three.plane = new THREE.GridHelper(4 * L, 40, 0xb9b2a2, 0xd8d2c4);
       three.plane.rotation.x = Math.PI / 2;
-      three.plane.position.set(run.poses[0].center[0], run.poses[0].center[1], 0);
+      if (run.poses.length) three.plane.position.set(run.poses[0].center[0], run.poses[0].center[1], 0);
       three.scene.add(three.plane);
     }
     $("scene-note").textContent = "";
     $("legend").hidden = false;
-    frameCamera();
+    if (run.poses.length) frameCamera();
   }
-  buildKymogram();
+}
+
+function showRunInfo() {
+  var meta = run.meta, file = run.file;
   var info = [];
   info.push("<b>" + (meta.model && meta.model.name || "модель") + "</b>");
   info.push("среда: <b>" + (meta.medium || "—") + "</b>");
   if (meta.params) info.push("параметры: <b>" + meta.params.set + "</b>");
   info.push("кадров: <b>" + file.count + "</b>");
-  info.push("длительность: <b>" + run.times[run.times.length - 1].toFixed(2) + " с</b>");
+  if (run.times.length)
+    info.push((live ? "в буфере: <b>" : "длительность: <b>") + (run.times[run.times.length - 1] - (live ? run.times[0] : 0)).toFixed(2) + " с</b>");
   $("info").innerHTML = info.join("");
   var speeds = Array.prototype.filter.call(run.speed, isFinite);
   var meanSpeed = speeds.length ? speeds.reduce(function (a, b) { return a + b; }, 0) / speeds.length : NaN;
@@ -509,11 +575,6 @@ function loadRun(buffer, meta) {
     ["кольца × узлы", run.rings + " × " + run.K],
     ["мышц в кадре", file.muscles]
   ].map(function (r) { return "<span>" + r[0] + "</span><span>" + r[1] + "</span>"; }).join("");
-  ["play", "back", "fwd", "slider"].forEach(function (id) { $(id).disabled = false; });
-  $("slider").max = file.count - 1;
-  playTime = run.times[0];
-  resize();
-  drawFrame(0);
 }
 
 function loadFromFiles(list) {
@@ -537,7 +598,8 @@ function loadFromServer(id) {
 
 function tick(now) {
   if (three) { three.controls.update(); }
-  if (playing && run) {
+  refreshLive();
+  if (playing && run && !live) {
     var dt = lastTick ? (now - lastTick) / 1000 : 0, times = run.times;
     playTime += dt * parseFloat($("rate").value);
     if (playTime > times[times.length - 1]) playTime = times[0];
@@ -555,6 +617,198 @@ function setPlaying(on) {
   playing = on;
   $("play").textContent = on ? "❚❚ Пауза" : "▶ Пуск";
   if (on && run) playTime = run.times[current];
+}
+
+/* ---------------------------------------------------------------------
+ * Живой режим: WebSocket /live (архитектура, «Управляющие сообщения»).
+ * Кадры копятся в кольцевом буфере на LIVE_FRAMES кадров; кимограмма и
+ * графики считаются по нему, сцена показывает последний кадр.
+ * ------------------------------------------------------------------- */
+var live = null, LIVE_FRAMES = 600;
+
+function liveUrl(id) {
+  return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/live" +
+    (id ? "?run=" + encodeURIComponent(id) : "");
+}
+
+function startLive(id) {
+  if (live && live.ws) { live.closing = true; live.ws.close(); }
+  document.body.classList.add("live");
+  live = { ws: new WebSocket(liveUrl(id)), hello: null, status: null, readOnly: false, fps: 0,
+           arrivals: [], dirty: false, closing: false, id: id || null };
+  live.ws.binaryType = "arraybuffer";
+  live.ws.onmessage = function (e) {
+    if (typeof e.data === "string") { var msg; try { msg = JSON.parse(e.data); } catch (x) { return; } onLiveMessage(msg); }
+    else onLiveFrame(e.data);
+  };
+  live.ws.onclose = function () {
+    if (live && !live.closing) {
+      $("scene-note").textContent = "Соединение с сервером закрыто. Переподключение…";
+      setTimeout(function () { if (live && !live.closing) startLive(live.id); }, 2000);
+    }
+  };
+  $("scene-note").textContent = "Подключение к живому прогону…";
+}
+
+function send(obj) { if (live && live.ws.readyState === 1) live.ws.send(JSON.stringify(obj)); }
+
+function toast(text) {
+  var t = $("toast"); t.textContent = text; t.className = "on";
+  clearTimeout(toast.timer); toast.timer = setTimeout(function () { t.className = ""; }, 4500);
+}
+
+function onLiveMessage(msg) {
+  if (msg.type === "hello") onHello(msg);
+  else if (msg.type === "status") { live.status = msg; live.dirty = true; if (msg.status !== "problem") showProblem(null); }
+  else if (msg.type === "param-changed") updateParam(msg.name, msg.value, msg.source);
+  else if (msg.type === "error") { if (msg.kind === "problem") showProblem(msg); else toast(msg.message); }
+}
+
+function onHello(msg) {
+  live.hello = msg; live.readOnly = !!msg.readOnly;
+  if (!msg.run) {
+    run = null;
+    $("scene-note").textContent = "На сервере нет запущенного прогона. Запустите его в REPL: (start-run …) — или выберите записанный прогон в списке.";
+    $("info").textContent = "живой режим: прогона нет";
+    return;
+  }
+  var r = msg.run;
+  var meta = { model: { name: r.model }, medium: r.medium, params: { set: r.params }, topology: r.topology,
+               muscles: r.muscles, dt: [{ fromStep: 0, value: r.h }] };
+  var frames = [];
+  run = { meta: meta, rings: r.topology.rings, K: r.topology.ringNodes, times: [], curv: [], poses: [],
+          speed: new Float64Array(0), freq: { series: new Float64Array(0), mean: NaN },
+          weights: muscleWeights(meta, r.topology.rings),
+          file: { nodes: r.topology.rings * r.topology.ringNodes, muscles: r.muscles.length, neurons: 0, count: 0,
+                  frames: frames, frame: function (k) { return frames[k]; } } };
+  setupRun(meta);
+  buildParams(msg.params || []);
+  $("slider").disabled = false; $("back").disabled = false; $("fwd").disabled = false;
+  ["run-pause", "run-resume", "run-step"].forEach(function (id) { $(id).disabled = live.readOnly; });
+  $("scene-note").textContent = "Ждём кадры…";
+  showRunInfo();
+}
+
+function onLiveFrame(buffer) {
+  if (!run || !run.file.frames) return;
+  var f;
+  try { f = decodeFrame(buffer, 0, 0); } catch (e) { toast("кадр не разобран: " + e.message); return; }
+  if (f.coords.length !== 3 * run.file.nodes) return;
+  var file = run.file, now = performance.now();
+  if (file.frames.length && f.step < file.frames[file.frames.length - 1].step) {
+    // откат прогона: прежние кадры — из другой истории, буфер начинается заново
+    file.frames.length = 0; run.times.length = 0; run.curv.length = 0; run.poses.length = 0; current = 0;
+  }
+  live.arrivals.push(now);
+  while (live.arrivals.length && now - live.arrivals[0] > 2000) live.arrivals.shift();
+  live.fps = live.arrivals.length / 2;
+  file.frames.push(f); run.times.push(f.time);
+  run.curv.push(ringCurvatures(f.coords, run.rings, run.K));
+  run.poses.push(bodyPose(f.coords, run.rings, run.K));
+  if (file.frames.length > LIVE_FRAMES) {
+    file.frames.shift(); run.times.shift(); run.curv.shift(); run.poses.shift();
+    if (!$("latest").checked) current = Math.max(0, current - 1);
+  }
+  file.count = file.frames.length;
+  if (file.count === 1) {
+    $("scene-note").textContent = "";
+    if (three) {
+      frameCamera();
+      if (three.plane) three.plane.position.set(run.poses[0].center[0], run.poses[0].center[1], 0);
+    }
+  }
+  live.dirty = true;
+}
+
+function refreshLive() {
+  // не чаще кадра анимации: пересчёт графиков и кимограммы по буферу
+  if (!live || !live.dirty || !run || !run.file.count) return;
+  live.dirty = false;
+  var times = Float64Array.from(run.times);
+  run.speed = forwardSpeed(times, run.poses);
+  run.freq = waveFrequency(times, run.curv, run.rings);
+  buildKymogram();
+  $("slider").max = run.file.count - 1;
+  showRunInfo();
+  drawFrame($("latest").checked ? run.file.count - 1 : Math.min(current, run.file.count - 1));
+}
+
+function buildParams(list) {
+  var box = $("params"); box.innerHTML = "";
+  // сначала живые, затем остальные, внутри — по имени
+  list = list.slice().sort(function (a, b) { return (b.live - a.live) || (a.name < b.name ? -1 : 1); });
+  list.forEach(function (p) {
+    var name = document.createElement("span"), val, unit = document.createElement("span");
+    name.className = "name" + (p.live ? "" : " fixed");
+    name.textContent = p.name;
+    name.title = (p.doc || "") + (p.live ? "" : " — без живой правки: нужна пересборка") +
+      (p.min !== null && p.max !== null ? "  [" + p.min + " … " + p.max + "]" : "");
+    if (p.live && !live.readOnly) {
+      val = document.createElement("input"); val.type = "number"; val.step = "any"; val.value = fmt(p.value);
+      val.addEventListener("change", function () {
+        var v = parseFloat(val.value);
+        if (!isFinite(v)) { toast(p.name + ": нужно число"); return; }
+        if (v === +val.dataset.value) return;      // change при потере фокуса без правки
+        send({ type: "set-param", name: p.name, value: v });
+      });
+    } else { val = document.createElement("span"); val.className = "val"; val.textContent = fmt(p.value); }
+    val.dataset.param = p.name; val.dataset.value = p.value;
+    unit.className = "unit"; unit.textContent = p.unit || "";
+    [name, val, unit].forEach(function (el) { el.dataset.row = p.name; box.appendChild(el); });
+  });
+  filterParams();
+}
+
+function fmt(v) { return v === null || v === undefined ? "—" : (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toExponential(3) : +v.toPrecision(6)); }
+
+function updateParam(name, value, source) {
+  var el = document.querySelector('#params [data-param="' + name + '"]');
+  if (el) {
+    el.dataset.value = value;
+    if (el.tagName === "INPUT") { el.value = fmt(value); el.classList.add("changed"); setTimeout(function () { el.classList.remove("changed"); }, 1500); }
+    else el.textContent = fmt(value);
+  }
+  toast(name + " = " + fmt(value) + (source === "browser" ? " (из браузера)" : " (из REPL)"));
+}
+
+function filterParams() {
+  var q = $("param-filter").value.trim().toLowerCase();
+  Array.prototype.forEach.call(document.querySelectorAll("#params [data-row]"), function (el) {
+    el.style.display = !q || el.dataset.row.indexOf(q) >= 0 ? "" : "none";
+  });
+}
+
+function showProblem(msg) {
+  var box = $("problem");
+  if (!msg) { box.className = ""; return; }
+  $("problem-cause").textContent = "Сбой: " + msg.cause;
+  $("problem-where").textContent = "шаг " + msg.step + ", t = " + (+msg.time).toFixed(4) + " с" +
+    (msg.where !== null && msg.where !== undefined ? ", элемент " + msg.where : "");
+  $("problem-msg").textContent = msg.message || "";
+  var buttons = $("problem-buttons"); buttons.innerHTML = "";
+  (msg.restarts || []).forEach(function (r) {
+    var b = document.createElement("button");
+    b.textContent = r.name; b.title = r.report; b.disabled = live.readOnly;
+    b.addEventListener("click", function () { send({ type: "choose", restart: r.name }); });
+    buttons.appendChild(b);
+  });
+  if (live.readOnly) buttons.insertAdjacentText("beforeend", "только просмотр: решение — в REPL, (choose …)");
+  box.className = "on";
+}
+
+function loadRunList() {
+  fetch("runs").then(function (r) { return r.ok ? r.json() : []; }).then(function (list) {
+    var sel = $("runs");
+    sel.innerHTML = "<option value=''>прогоны на сервере (" + list.length + ")…</option>";
+    list.forEach(function (e) {
+      var o = document.createElement("option");
+      o.value = (e.live ? "live:" : "run:") + e.id;
+      o.textContent = (e.live ? "● " : "") + e.id + " · " + (e.model || "?") + " · " + (e.medium || "?") +
+        (e.live ? " · идёт" : " · " + (+e.duration).toFixed(1) + " с, " + e.status);
+      sel.appendChild(o);
+    });
+    sel.hidden = false;
+  }).catch(function () {});
 }
 
 /* ---------------------------------------------------------------------
@@ -624,9 +878,11 @@ function runSelftest() {
  * ------------------------------------------------------------------- */
 $("files").addEventListener("change", function (e) { loadFromFiles(e.target.files); });
 $("play").addEventListener("click", function () { setPlaying(!playing); });
-$("back").addEventListener("click", function () { setPlaying(false); if (run) drawFrame(Math.max(0, current - 1)); });
-$("fwd").addEventListener("click", function () { setPlaying(false); if (run) drawFrame(Math.min(run.file.count - 1, current + 1)); });
-$("slider").addEventListener("input", function (e) { setPlaying(false); drawFrame(parseInt(e.target.value, 10)); });
+$("back").addEventListener("click", function () { setPlaying(false); if (live) $("latest").checked = false; if (run) drawFrame(Math.max(0, current - 1)); });
+$("fwd").addEventListener("click", function () { setPlaying(false); if (live) $("latest").checked = false; if (run) drawFrame(Math.min(run.file.count - 1, current + 1)); });
+$("slider").addEventListener("input", function (e) {
+  setPlaying(false); if (live) $("latest").checked = false; drawFrame(parseInt(e.target.value, 10));
+});
 window.addEventListener("resize", resize);
 document.addEventListener("keydown", function (e) {
   if (!run || e.target.tagName === "INPUT" && e.target.type !== "range") return;
@@ -635,10 +891,26 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "ArrowRight") drawFrame(Math.min(run.file.count - 1, current + 1));
 });
 
-var params = new URLSearchParams(location.search);
+$("run-pause").addEventListener("click", function () { send({ type: "pause" }); });
+$("run-resume").addEventListener("click", function () { send({ type: "resume" }); });
+$("run-step").addEventListener("click", function () { send({ type: "step", n: 100 }); });
+$("fps").addEventListener("change", function () { send({ type: "rate", fps: parseFloat($("fps").value) }); });
+$("latest").addEventListener("change", function () { if (live) live.dirty = true; });
+$("param-filter").addEventListener("input", filterParams);
+$("runs").addEventListener("change", function () {
+  var v = $("runs").value;
+  if (v.indexOf("live:") === 0) location.search = "?live=" + encodeURIComponent(v.slice(5));
+  else if (v.indexOf("run:") === 0) location.search = "?run=" + encodeURIComponent(v.slice(4));
+});
+
+var params = new URLSearchParams(location.search), served = /^https?:$/.test(location.protocol);
 if (params.has("selftest")) runSelftest();
-else if (params.has("run")) { three = buildScene(); loadFromServer(params.get("run")); }
-else three = buildScene();
+else {
+  three = buildScene();
+  if (served) loadRunList();
+  if (params.has("run")) loadFromServer(params.get("run"));
+  else if (served) startLive(params.get("live"));
+}
 requestAnimationFrame(tick);
 </script>
 </body>

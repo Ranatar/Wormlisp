@@ -1,6 +1,6 @@
 ;;;; src/server/check-page.lisp
 ;;;;
-;;;; Проверочная страница этапа 0. Показывает, что сервер в виртуалке
+;;;; Проверочная страница (/check, с этапа 9; на этапе 0 была на /). Показывает, что сервер в виртуалке
 ;;;; виден из браузера хоста через проброс порта, и сразу проверяет, есть ли
 ;;;; в этом браузере то, на что опирается просмотрщик: WebGL2, WebSocket,
 ;;;; DataView с 64-битными целыми, Blob.slice.
@@ -82,7 +82,7 @@
  td.note, #ua { color: #4d5852; font-size: 13px; }
 </style></head><body><main>
 <h1>Wormlisp на связи</h1>
-<p class=\"lead\">Сервер процесса REPL отвечает. Этап 0: проверка связи виртуалки и браузера хоста.</p>
+<p class=\"lead\">Сервер процесса REPL отвечает: проверка связи виртуалки и браузера хоста. Просмотрщик — <a href=\"/\">на главной странице</a>.</p>
 <h2>Сервер</h2><table>")
     (loop for (label . value) in (server-facts)
           do (format out "<tr><th>~A</th><td>~A</td></tr>~%"
@@ -93,7 +93,7 @@
 <script>~A</script>
 </main></body></html>" *browser-check-script*)))
 
-(hunchentoot:define-easy-handler (check-page :uri "/") ()
+(hunchentoot:define-easy-handler (check-page :uri "/check") ()
   (setf (hunchentoot:content-type*) "text/html; charset=utf-8")
   (check-page-html))
 
@@ -109,21 +109,23 @@
 (defun serving-p ()
   (and *acceptor* (hunchentoot:started-p *acceptor*)))
 
-(defun serve (&key (port *default-port*) (address nil))
+(defun serve (&key (port *default-port*) (address nil) read-only)
   "Запустить HTTP-сервер на PORT. ADDRESS NIL — все интерфейсы виртуалки
-\(нужно для проброса порта). Повторный вызов перезапускает сервер."
+\(нужно для проброса порта). READ-ONLY — запретить управляющие сообщения
+клиентов. Повторный вызов перезапускает сервер."
   (when (serving-p) (stop-serving))
+  (setf *read-only* (and read-only t))
   (setf hunchentoot:*hunchentoot-default-external-format* :utf-8
         hunchentoot:*default-content-type* "text/html; charset=utf-8")
   (setf *acceptor*
-        (make-instance 'hunchentoot:easy-acceptor
+        (make-instance 'worm-acceptor
                        :port port
                        :address address
                        :access-log-destination nil
                        :message-log-destination (log-path)))
   (hunchentoot:start *acceptor*)
-  (format t "~&Сервер: http://localhost:~D/  (журнал: ~A)~%"
-          (hunchentoot:acceptor-port *acceptor*) (namestring (log-path)))
+  (format t "~&Сервер: http://localhost:~D/~:[~;, только просмотр~]  (журнал: ~A)~%"
+          (hunchentoot:acceptor-port *acceptor*) *read-only* (namestring (log-path)))
   *acceptor*)
 
 (defun stop-serving ()
