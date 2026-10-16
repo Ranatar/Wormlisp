@@ -7,7 +7,7 @@
 
 (defsystem "worm/platform"
   :description "Слой 0. Всё SBCL-специфичное."
-  :depends-on ((:require "sb-md5"))
+  :depends-on ((:require "sb-md5") (:require "sb-concurrency"))
   :pathname "src/platform/"
   :serial t
   :components ((:file "package")
@@ -126,7 +126,10 @@
   :pathname "src/runtime/"
   :serial t
   :components ((:file "package")
-               (:file "bench")))
+               (:file "bench")
+               (:file "run")
+               (:file "thread")
+               (:file "api")))
 
 (defsystem "worm/server"
   :description "Слой 6. HTTP и WebSocket, протокол живого просмотра."
@@ -193,6 +196,8 @@
                (:file "dsl" :depends-on ("body"))
                (:file "codegen" :depends-on ("dsl"))
                (:file "codegen-physics" :depends-on ("codegen" "physics"))
+               (:file "runtime" :depends-on ("suite"))
+               (:file "runtime-repl" :depends-on ("runtime" "physics"))
                (:file "io" :depends-on ("suite"))
                (:file "analysis" :depends-on ("io"))
                (:file "server" :depends-on ("suite")))

@@ -31,6 +31,53 @@
 (defmacro with-lock ((lock) &body body)
   `(sb-thread:with-recursive-lock (,lock) ,@body))
 
+;;; Потоки, почтовые ящики и семафоры (архитектура, «Потоки и интерактивная
+;;; работа»): поток симуляции читает команды из почтового ящика, синхронные
+;;; функции REPL ждут ответа на семафоре «обещания».
+
+(defun make-thread (function &key (name "worm thread"))
+  (sb-thread:make-thread function :name name))
+
+(defun join-thread (thread &key timeout)
+  "Дождаться завершения THREAD; NIL, если не дождались за TIMEOUT секунд."
+  (if timeout
+      (multiple-value-bind (value status) (sb-thread:join-thread thread :default nil :timeout timeout)
+        (declare (ignore status))
+        (values value (not (sb-thread:thread-alive-p thread))))
+      (values (sb-thread:join-thread thread :default nil) t)))
+
+(defun thread-alive-p (thread) (and thread (sb-thread:thread-alive-p thread)))
+(defun current-thread () sb-thread:*current-thread*)
+(defun thread-name (thread) (sb-thread:thread-name thread))
+
+(defun make-mailbox (&optional (name "worm mailbox"))
+  (sb-concurrency:make-mailbox :name name))
+
+(defun mailbox-send (mailbox message)
+  (sb-concurrency:send-message mailbox message))
+
+(defun mailbox-receive (mailbox &key timeout)
+  "Следующее сообщение; ждёт, пока оно не придёт (или TIMEOUT секунд).
+Вторым значением — T, если сообщение получено."
+  (if timeout
+      (sb-concurrency:receive-message mailbox :timeout timeout)
+      (values (sb-concurrency:receive-message mailbox) t)))
+
+(defun mailbox-receive-no-hang (mailbox)
+  "Сообщение, если оно уже есть: (values сообщение получено-p)."
+  (sb-concurrency:receive-message-no-hang mailbox))
+
+(defun mailbox-count (mailbox) (sb-concurrency:mailbox-count mailbox))
+
+(defun make-semaphore (&optional (name "worm semaphore"))
+  (sb-thread:make-semaphore :name name :count 0))
+
+(defun signal-semaphore (semaphore) (sb-thread:signal-semaphore semaphore))
+
+(defun wait-on-semaphore (semaphore &key timeout)
+  "T, если дождались; NIL по истечении TIMEOUT секунд."
+  (and (sb-thread:wait-on-semaphore semaphore :timeout timeout) t))
+
 ;;; Атомарная ячейка: в неё поток симуляции кладёт снимки, а читатели
 ;;; берут последнюю ссылку без блокировок.
 

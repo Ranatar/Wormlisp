@@ -27,7 +27,7 @@
    #:integrator-time #:integrator-step #:integrator-h
    #:integrator-dt-history #:integrator-restarts #:integrator-unreliable-p
    #:integrator-status #:integrator-neural-every
-   #:step! #:run-steps
+   #:step! #:run-steps #:invalidate-factorization #:set-integrator-position
    ;; контрольные точки
    #:save-checkpoint #:restore-checkpoint #:checkpoint-count #:checkpoint-steps
    #:latest-checkpoint-step))

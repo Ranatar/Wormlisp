@@ -33,8 +33,8 @@
 ;;; Гидростатика
 (define-parameter bulk-modulus   :unit :kPa :bounds (0 10000)
   :doc "Объёмный модуль тела, он же штраф объёма k_p.")
-(define-parameter prestress      :unit :kPa :bounds (0 1000)
-  :doc "Предварительное давление p₀.")
+(define-parameter prestress      :unit :kPa :bounds (0 1000) :live nil
+  :doc "Предварительное давление p₀. От него при сборке считаются натяжения покоя рёбер, поэтому живой правки нет.")
 
 ;;; Мышцы
 (define-parameter tau-ca         :unit :ms :bounds (0.1 10000) :doc "Постоянная активации τ_Ca.")

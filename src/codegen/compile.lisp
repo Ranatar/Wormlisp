@@ -16,7 +16,7 @@
 
 (in-package #:worm.codegen)
 
-(defparameter +codegen-version+ 1)
+(defparameter +codegen-version+ 2)
 
 (defvar *units* nil "Единицы собираемой модели — для сведения входов.")
 (defvar *relations* nil "Связи собираемой модели: ((провод . csr) …).")
@@ -32,7 +32,8 @@
 
 (defstruct (model-layout (:copier nil))
   instance units param-names param-defaults neural-states obs-blocks syn-blocks
-  y0 yn0 kl ku notes forms medium)
+  y0 yn0 kl ku notes forms medium
+  activation)            ; (yn obs z p clock out) — активации мышц для кадров или NIL
 
 (defun running-name (r) (worm.dsl::instance-name (worm.dsl::running-instance r)))
 
@@ -310,6 +311,22 @@ SCRATCH и FORCE-HESSIAN — готовый рабочий массив и об�
            append (loop for (port . src) in (unit-inputs u)
                         when (eq (first src) :syn)
                           collect (aggregation u port (list 'syn (second src)))))))
+
+(defun activation-unit (neural)
+  "Экземпляр на мышцах с выходом ACTIVE — его активации идут в кадры."
+  (find-if (lambda (u) (and (eq (unit-family u) :muscle)
+                            (assoc :active (worm.dsl::kernel-outputs (kernel-of u)))))
+           neural))
+
+(defun activation-body (neural param-names)
+  "Выход ACTIVE мышц в OUT: сначала выходы, которые нервно-мышечная часть
+читает сама (привод генератора), затем входы и выход мышц."
+  (let ((u (activation-unit neural)))
+    (append
+     (neural-pass neural param-names nil)
+     (internal-aggregations u)
+     (list (element-loop u (list (cdr (assoc :active (worm.dsl::kernel-outputs (kernel-of u))))) param-names
+                         (lambda (forms) `((setf (aref out e) ,(first forms)))))))))
 
 (defun mech-forces-body (mech param-names)
   (loop for u in mech
@@ -645,6 +662,15 @@ COMPILED-MODEL-LAYOUT."
                                             (let ((time 0d0) (aux y)) (declare (ignorable time aux))
                                               ,@(check-state-body mech param-names))
                                             nil))))))
+                 (forms (if (activation-unit neural)
+                             (append forms
+                                     (list (cons :activation
+                                                 (factory-form *env* '(yn obs z p clock out)
+                                                               '((type dvec yn obs z p clock out) (ignorable yn obs z p clock out))
+                                                               `((let ((time (aref clock ,+clock-time+))) (declare (ignorable time))
+                                                                   ,@(activation-body neural param-names))
+                                                                 (values))))))
+                             forms))
                  (env (env-vector *env*))
                  (functions (multiple-value-bind (factories factory-notes)
                                 (compile-factories forms (cache-key spec kk (worm.dsl::model-instance-medium model)) cache)
@@ -670,7 +696,8 @@ COMPILED-MODEL-LAYOUT."
                   (model-layout-kl layout) kl (model-layout-ku layout) ku
                   (model-layout-notes layout) (reverse (car notes))
                   (model-layout-forms layout) forms
-                  (model-layout-medium layout) (worm.dsl::model-instance-medium model))
+                  (model-layout-medium layout) (worm.dsl::model-instance-medium model)
+                  (model-layout-activation layout) (cdr (assoc :activation functions)))
             (flet ((fn (name) (cdr (assoc name functions))))
               (make-compiled-model
                :name (worm.dsl:model-spec-name spec) :hash (worm.dsl:model-spec-hash spec) :layout layout
@@ -692,6 +719,30 @@ COMPILED-MODEL-LAYOUT."
         (let ((set (if (worm.params:param-set-p params) params (worm.params:load-param-set params))))
           (map 'dvec (lambda (n) (float (worm.params:param-value set n) 0d0)) (model-layout-param-names layout)))
         (copy-seq (model-layout-param-defaults layout)))))
+
+(defun model-activations (compiled y-neural obs params clock out)
+  "Активации мышц 0…1 в OUT (double-float) по состоянию нервно-мышечной
+части; NIL, если в модели нет мышц с выходом ACTIVE."
+  (let ((fn (model-layout-activation (compiled-model-layout compiled))))
+    (when fn
+      (fill out 0d0)
+      (funcall fn y-neural obs (make-dvec 0) params clock out)
+      t)))
+
+(defun model-param-names (compiled)
+  "Имена параметров вектора p по порядку (ключевые слова)."
+  (model-layout-param-names (compiled-model-layout compiled)))
+
+(defun model-initial-state (compiled)
+  "Начальные y-mech и y-neural (копии)."
+  (let ((layout (compiled-model-layout compiled)))
+    (values (copy-seq (model-layout-y0 layout)) (copy-seq (model-layout-yn0 layout)))))
+
+(defun model-medium (compiled) (model-layout-medium (compiled-model-layout compiled)))
+
+(defun model-neural-states (compiled)
+  "Раскладка y-neural: ((экземпляр переменная смещение число) …)."
+  (model-layout-neural-states (compiled-model-layout compiled)))
 
 (defun model-notes (compiled) (model-layout-notes (compiled-model-layout compiled)))
 (defun model-forms (compiled) (model-layout-forms (compiled-model-layout compiled)))

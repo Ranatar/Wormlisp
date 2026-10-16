@@ -210,6 +210,23 @@ STEP — номер шага, с которого продолжается пр�
       (push (cons (integrator-step it) (integrator-h it)) (integrator-%dt-history it)))
     it))
 
+(defun invalidate-factorization (it)
+  "Пересчитать нервную матрицу на следующем шаге: например, после правки
+параметров, от которых зависит якобиан."
+  (setf (integrator-factor-valid it) nil)
+  it)
+
+(defun set-integrator-position (it &key time step h)
+  "Поставить время, номер шага и h после загрузки состояния извне (точка с
+диска, перенос при пересборке)."
+  (when time (setf (integrator-time it) (float time 0d0)))
+  (when step (setf (integrator-step it) step))
+  (when (and h (/= h (integrator-h it)))
+    (setf (integrator-h it) (float h 0d0))
+    (push (cons (integrator-step it) (integrator-h it)) (integrator-%dt-history it)))
+  (setf (integrator-factor-valid it) nil)
+  it)
+
 ;;; Шаг
 
 (declaim (inline non-finite-p))

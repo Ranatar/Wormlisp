@@ -6,10 +6,13 @@
 (defpackage #:worm
   (:use #:cl)
   (:import-from #:worm.server #:serve #:stop-serving #:serving-p)
+  (:import-from #:worm.runtime
+   #:build-model #:start-run #:stop-run #:wait-run #:list-runs #:*current-run* #:pause #:resume #:step-run #:call-in-run #:set-param #:param #:load-params #:snapshot #:state-ref #:save-checkpoint #:rollback #:record #:record-to #:problem #:choose #:debug-problem #:rebuild #:benchmark-step #:profile-run)
   (:export #:serve
            #:stop-serving
            #:serving-p
-           #:about))
+           #:about
+           #:build-model #:start-run #:stop-run #:wait-run #:list-runs #:*current-run* #:pause #:resume #:step-run #:call-in-run #:set-param #:param #:load-params #:snapshot #:state-ref #:save-checkpoint #:rollback #:record #:record-to #:problem #:choose #:debug-problem #:rebuild #:benchmark-step #:profile-run))
 
 (in-package #:worm)
 
