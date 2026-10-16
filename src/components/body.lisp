@@ -169,6 +169,7 @@ VB начинает в верхнем состоянии, как в бинарн
   :family :neuron
   :params (neuron-c neuron-g-leak neuron-e-leak contact-g e-exc e-inh syn-rise syn-decay syn-beta
            command-current neuron-sr-conductance neuron-nmj-gain nmj-inhibition-scale nmj-head-scale sr-filter
+           head-drive head-drive-frequency
            (neuron-threshold :per-element))
   :state ((v neuron-e-leak) (s 0) (sense 0))
   :inputs ((gap-in (link :gap))
@@ -182,8 +183,14 @@ VB начинает в верхнем состоянии, как в бинарн
         ;; тормозящий: ток ограничен потенциалами реверсии
         (x (* proprioceptive side sense))
         (i-sr (* neuron-sr-conductance (+ (* (positive x) (- e-exc v)) (* (positive (- x)) (- e-inh v)))))
-        (phi (logistic (* syn-beta (- v neuron-threshold)))))
-  :derivs ((v (/ (+ i-leak i-gap i-syn i-sr (* command command-current)) neuron-c))
+        (phi (logistic (* syn-beta (- v neuron-threshold))))
+        (hd (* head-side (sin (* 2 pi head-drive-frequency (time)))))
+        (i-head (* head-drive (+ (* (positive hd) (- e-exc v)) (* (positive (- hd)) (- e-inh v))))))
+  :derivs ((v (/ (+ i-leak i-gap i-syn i-sr (* command command-current)
+                    ;; проверочный головной ритм: канал с потенциалами реверсии
+                    ;; в головных мотонейронах, как у рецептора растяжения
+                    i-head)
+                 neuron-c))
            (s (- (* syn-rise phi (- 1 s)) (* syn-decay s)))
            (sense (/ (- bend sense) sr-filter)))
   :outputs ((potential v)

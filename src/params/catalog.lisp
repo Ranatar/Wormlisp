@@ -142,6 +142,9 @@
   :doc "Масштаб остальных щелевых контактов.")
 (define-parameter chemical-scale :unit nil :bounds (0 100) :live nil
   :doc "Масштаб химических синапсов между нейронами.")
+(define-parameter head-drive     :unit :pS :bounds (0 1000000)
+  :doc "Проверочный головной ритм третьего уровня: проводимость синусоидального канала нейронов вне тяжа со стороной.")
+(define-parameter head-drive-frequency :unit :Hz :bounds (0 20) :doc "Частота проверочного головного ритма.")
 (define-parameter nmj-head-scale :unit nil :bounds (0 100)
   :doc "Вес нервно-мышечных синапсов нейронов вне вентрального тяжа (головные, сублатеральные).")
 (define-parameter nmj-inhibition-scale :unit nil :bounds (0 100)

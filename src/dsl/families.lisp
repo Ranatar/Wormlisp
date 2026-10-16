@@ -25,7 +25,9 @@
 ;;;;                  proprioceptive (1 — B-нейроны DB и VB), command (+1 — AVB,
 ;;;;                  −1 — AVA: команда вперёд возбуждает одного и тормозит другого),
 ;;;;                  cord (1 — мотонейроны вентрального тяжа и хвоста: AS, DA,
-;;;;                  DB, DD, VA, VB, VC, VD, PDA, PDB), gap-total (сумма
+;;;;                  DB, DD, VA, VB, VC, VD, PDA, PDB), head-side (у нейронов вне
+;;;;                  тяжа: +1 — больше контактов на дорсальные мышцы, −1 — на
+;;;;                  вентральные), gap-total (сумма
 ;;;;                  щелевых контактов нейрона)
 ;;;;
 ;;;; Отношение :via связывает выход экземпляра одного семейства со входом
@@ -54,7 +56,7 @@
         ((eq family :node) '(ds position tangent))
         ((eq family :muscle) '(position side))
         ((eq family :prop-unit) '(position index))
-        ((eq family :neuron) '(position side gaba proprioceptive command cord gap-total))
+        ((eq family :neuron) '(position side gaba proprioceptive command cord head-side gap-total))
         (t '())))
 
 (defun family-slots (family ring-nodes)

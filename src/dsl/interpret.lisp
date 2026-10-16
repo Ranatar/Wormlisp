@@ -106,10 +106,21 @@ gap-motor-scale — у прочих (параметры, «Уровень 3»)."
   (let ((k (float (worm.params:param-value params :chemical-scale) 0d0)))
     (loop for (a b c) across (worm.anatomy:connectome-chemical connectome) collect (list a b (* k c)))))
 
-(defun neuron-elements (connectome params)
+(defun neuron-elements (connectome params muscles)
   (let* ((neurons (worm.anatomy:connectome-neurons connectome))
          (n (length neurons))
-         (gap-total (make-dvec n)))
+         (gap-total (make-dvec n))
+         (head-side (make-dvec n)))
+    ;; сторона нейрона вне тяжа по его нервно-мышечным синапсам: +1, если
+    ;; больше контактов на дорсальные мышцы, −1 — на вентральные
+    (let ((balance (make-dvec n)))
+      (loop for (j m c) across (worm.anatomy:connectome-nmj connectome)
+            do (incf (aref balance j) (if (member (worm.anatomy:muscle-quadrant (aref muscles m))
+                                                  '(:dorsal-left :dorsal-right))
+                                          c (- c))))
+      (dotimes (j n)
+        (unless (member (worm.anatomy:neuron-class (aref neurons j)) +cord-classes+)
+          (setf (aref head-side j) (float (signum (aref balance j)) 0d0)))))
     (loop for (a b c) in (scaled-gaps connectome params)
           do (incf (aref gap-total a) c) (incf (aref gap-total b) c))
     (flet ((column (f) (map 'dvec (lambda (x) (float (funcall f x) 0d0)) neurons)))
@@ -122,6 +133,7 @@ gap-motor-scale — у прочих (параметры, «Уровень 3»)."
             (cons :proprioceptive (column (lambda (x) (if (member (worm.anatomy:neuron-class x) '(:db :vb)) 1 0))))
             (cons :command (column (lambda (x) (case (worm.anatomy:neuron-class x) (:avb 1) (:ava -1) (t 0)))))
             (cons :cord (column (lambda (x) (if (member (worm.anatomy:neuron-class x) +cord-classes+) 1 0))))
+            (cons :head-side head-side)
             (cons :gap-total gap-total)))))
 
 (defun family-elements (family topology binding &optional params anatomy)
@@ -151,7 +163,8 @@ gap-motor-scale — у прочих (параметры, «Уровень 3»)."
                (setf (aref index u) (float (1+ u) 0d0)
                      (aref pos u) (/ (+ u 0.5d0) m)))
              (list (cons :index index) (cons :position pos))))
-          ((eq family :neuron) (neuron-elements (anatomy-connectome-or-error anatomy) params))
+          ((eq family :neuron) (neuron-elements (anatomy-connectome-or-error anatomy) params
+                                                (worm.anatomy:anatomy-muscles anatomy)))
           ((eq family :compartment)
            (list (cons :rest-volume (worm.topology:tube-rest-volume topology))))
           ((eq family :ring)

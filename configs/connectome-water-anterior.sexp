@@ -6,5 +6,5 @@
   :duration 10
   :set ((rf-direction anterior))
   :record (:frames-every 0.01)
-  :metrics-from 4
+  :metrics-from 2
   :timeout 1800)

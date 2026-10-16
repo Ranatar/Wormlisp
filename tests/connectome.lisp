@@ -174,6 +174,37 @@
       (is (notany (lambda (j) (or (assoc :dt (getf j :set)) (assoc :neural-every (getf j :set)))) jobs))
       (is (= 4 (length (remove-duplicates (mapcar (lambda (j) (getf j :id)) jobs) :test #'string=)))))))
 
+(test neuron-receptive-fields-and-head-sides
+  ;; Поле B-нейрона: назад от его положения с положительным весом, при
+  ;; rf-direction :anterior — впереди него с отрицательным; у остальных
+  ;; нейронов поля нет. Сторона головных нейронов — по их мышцам.
+  (flet ((fields (direction)
+           (let* ((set (worm.params:derive-param-set (worm.params:load-param-set "agar-a-v1") "rf"
+                                                     (list (list :rf-direction direction nil))))
+                  (model (worm.dsl:instantiate (worm.dsl:find-model 'worm.components:worm-3d-connectome)
+                                               :params set :rings 10))
+                  (neurons (worm.dsl::running-named model :neurons))
+                  (edges (worm.dsl::running-named model :receptors))
+                  (csr (cdr (find-if (lambda (rel) (eq (worm.dsl::wire-via (car rel)) :receptive-field))
+                                     (worm.dsl::model-instance-relations model)))))
+             (values csr (worm.dsl::running-elements neurons) (worm.dsl::running-elements edges)))))
+    (multiple-value-bind (csr el edge-el) (fields :posterior)
+      (let ((prop (cdr (assoc :proprioceptive el))) (pos (cdr (assoc :position el)))
+            (epos (cdr (assoc :position edge-el))))
+        (dotimes (u (length prop))
+          (if (plusp (aref prop u))
+              (is (and (aref csr u) (every (lambda (e) (and (plusp (cdr e)) (>= (aref epos (car e)) (aref pos u)))) (aref csr u))))
+              (is (null (aref csr u)))))
+        (let ((side (cdr (assoc :head-side el))) (cord (cdr (assoc :cord el))))
+          (is (some #'plusp side)) (is (some #'minusp side))
+          (is (every (lambda (s c) (or (zerop c) (zerop s))) side cord) "у мотонейронов тяжа стороны головы нет"))))
+    (multiple-value-bind (csr el edge-el) (fields :anterior)
+      (let ((prop (cdr (assoc :proprioceptive el))) (pos (cdr (assoc :position el)))
+            (epos (cdr (assoc :position edge-el))))
+        (dotimes (u (length prop))
+          (when (and (plusp (aref prop u)) (aref csr u))
+            (is (every (lambda (e) (and (minusp (cdr e)) (<= (aref epos (car e)) (aref pos u)))) (aref csr u)))))))))
+
 ;;; Походка третьего уровня (make test-full)
 
 (in-suite physics)

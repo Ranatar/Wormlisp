@@ -5,5 +5,5 @@
   :dt 5d-4
   :duration 10
   :record (:frames-every 0.01)
-  :metrics-from 4
+  :metrics-from 2
   :timeout 1800)
