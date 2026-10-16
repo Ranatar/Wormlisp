@@ -70,6 +70,18 @@
   :doc "Число проприоцептивных единиц.")
 (define-parameter rf-length      :unit nil :bounds (0 1) :live nil
   :doc "Длина рецептивного поля, доля L; веса поля считаются при сборке.")
+(define-parameter head-sr-gain   :unit nil :bounds (0 100)
+  :doc "Множитель проводимости рецептора головной единицы второго уровня.")
+(define-parameter head-adapt-gain :unit nil :bounds (0 100)
+  :doc "Утомление головной единицы второго уровня: ток против включённой стороны (0 — нет).")
+(define-parameter head-bias      :unit nil :bounds (-10 10)
+  :doc "Добавка ко входу VB головной единицы: запуск головного генератора.")
+(define-parameter head-adapt-tau :unit :ms :bounds (1 100000)
+  :doc "Постоянная утомления головной единицы.")
+(define-parameter head-muscles-end :unit nil :bounds (0 1) :live nil
+  :doc "При поле вперёд мышцы впереди этого положения (доля L) получают выход головной единицы.")
+(define-parameter head-rf-length :unit nil :bounds (0 1) :live nil
+  :doc "Поле назад головной единицы при поле вперёд у остальных (головной генератор), доля L.")
 (define-parameter rf-direction   :kind :choice :choices (:posterior :anterior) :live nil
   :doc "Направление рецептивного поля: назад (Бойл) или вперёд (Wen).")
 (define-parameter hysteresis     :unit nil :bounds (0 1) :doc "Ширина гистерезиса ε B-нейрона.")

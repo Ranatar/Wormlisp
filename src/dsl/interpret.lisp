@@ -194,9 +194,11 @@ rf-length. При поле вперёд у первой
   (let ((len (float (worm.params:param-value params :rf-length) 0d0))
         (start (/ unit units))
         (direction (worm.params:param-value params :rf-direction)))
-    (if (or (eq direction :posterior) (zerop unit))
-        (list start (min 1d0 (+ start len)) :posterior)
-        (list (max 0d0 (- start len)) start :anterior))))
+    (cond ((eq direction :posterior) (list start (min 1d0 (+ start len)) :posterior))
+          ;; головной генератор при поле вперёд: своё поле назад длиной head-rf-length
+          ((zerop unit)
+           (list start (min 1d0 (+ start (float (worm.params:param-value params :head-rf-length) 0d0))) :posterior))
+          (t (list (max 0d0 (- start len)) start :anterior)))))
 
 (defun receptive-field-csr (src csr n-dst params)
   "Поле проприоцептивной единицы: сумма по полю, нормированная на число
@@ -218,13 +220,19 @@ rf-length. При поле вперёд у первой
                    (setf (aref csr u) (mapcar (lambda (e) (cons e w)) edges))))))))
   csr)
 
-(defun innervation-units-csr (src dst csr n-dst)
-  "Мышца — от проприоцептивной единицы своего участка, вес — сторона мышцы."
+(defun innervation-units-csr (src dst csr n-dst params)
+  "Мышца — от проприоцептивной единицы своего участка, вес — сторона мышцы.
+При поле вперёд мышцы головы до head-muscles-end (доля L) — от головной
+единицы (головной генератор)."
   (let ((units (running-count src))
         (side (cdr (assoc :side (running-elements dst))))
-        (pos (cdr (assoc :position (running-elements dst)))))
+        (pos (cdr (assoc :position (running-elements dst))))
+        (head-end (if (eq (worm.params:param-value params :rf-direction) :anterior)
+                      (float (worm.params:param-value params :head-muscles-end) 0d0)
+                      0d0)))
     (dotimes (m n-dst)
-      (setf (aref csr m) (list (cons (unit-of-position (aref pos m) units) (aref side m))))))
+      (setf (aref csr m) (list (cons (if (< (aref pos m) head-end) 0 (unit-of-position (aref pos m) units))
+                                     (aref side m))))))
   csr)
 
 (defun relation-csr (wire src dst binding &optional topology params anatomy)
@@ -278,7 +286,7 @@ rf-length. При поле вперёд у первой
                    do (push (cons j (/ c (if (plusp (aref cord m)) (aref cord m) (max 1d0 (aref all m)))))
                             (aref csr m)))
              (dotimes (e n-dst) (setf (aref csr e) (nreverse (aref csr e)))))
-           (innervation-units-csr src dst csr n-dst)))
+           (innervation-units-csr src dst csr n-dst params)))
       (:identity (dotimes (e n-dst) (setf (aref csr e) (list (cons e 1d0)))))
       (:broadcast (dotimes (e n-dst) (setf (aref csr e) (list (cons 0 1d0)))))
       (:attachment

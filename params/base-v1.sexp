@@ -49,6 +49,12 @@
   (units           12     nil            :level :estimate  :source "Boyle 2012")
   (rf-length       0.35   nil            :level :fit       :bounds (0.2 0.5)
                                          :source "этап 10; Boyle 2012: 0.5 L; Wen 2012: ~0.2 L")
+  (head-rf-length  0.1    nil            :level :fit       :source "этап 12а")
+  (head-sr-gain    1      nil            :level :fit       :source "этап 12а")
+  (head-adapt-gain 0      nil            :level :fit       :source "этап 12а")
+  (head-adapt-tau  300    :ms            :level :fit       :source "этап 12а")
+  (head-bias       0      nil            :level :fit       :source "этап 12а")
+  (head-muscles-end 0.083 nil            :level :fit       :source "этап 12а: участок головной единицы")
   (rf-direction    :posterior nil        :level :fit
                                          :source "Boyle 2012: :posterior; Wen 2012: :anterior")
   (hysteresis      0.5    nil            :level :estimate  :source "Boyle 2012")

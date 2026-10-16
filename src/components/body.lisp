@@ -94,16 +94,22 @@
 (define-component b-unit
   :family :prop-unit
   :params (avb-dorsal avb-ventral sr-gain-base sr-gain-slope sr-scale dorsal-stretch-gain dorsal-compress-gain
-           b-threshold hysteresis vd-inhibition sr-filter)
-  :state ((sense 0))
+           b-threshold hysteresis vd-inhibition sr-filter head-sr-gain head-adapt-gain head-adapt-tau head-bias)
+  :state ((sense 0) (adapt 0))
   :discrete ((db 0) (vb 0))
   :inputs ((bend (link :stretch)))
-  :derivs ((sense (/ (- bend sense) sr-filter)))
-  :let ((g (* sr-scale (+ sr-gain-base (* sr-gain-slope index))))
+  :derivs ((sense (/ (- bend sense) sr-filter))
+           (adapt (/ (- (- db vb) adapt) head-adapt-tau)))
+  :let ((g (* sr-scale (+ sr-gain-base (* sr-gain-slope index))
+                   ;; головная единица (index = 1): своё усиление
+                   (+ 1 (* (- head-sr-gain 1) (positive (- 2 index))))))
         (sd (- (* dorsal-stretch-gain (positive sense))
                (* dorsal-compress-gain (positive (- sense)))))
-        (i-db (+ avb-dorsal (* g sd)))
-        (i-vb (- (- avb-ventral (* g sense)) (* vd-inhibition db)))
+        (head (positive (- 2 index)))
+        ;; утомление головной единицы: медленный ток против включённой стороны
+        (i-adapt (* head-adapt-gain head adapt))
+        (i-db (- (+ avb-dorsal (* g sd)) i-adapt))
+        (i-vb (+ (- (- avb-ventral (* g sense)) (* vd-inhibition db)) i-adapt (* head-bias head)))
         (on (* b-threshold (+ 1 hysteresis)))
         (off (* b-threshold (- 1 hysteresis))))
   :events (((- i-db on) :rising (set db 1))
