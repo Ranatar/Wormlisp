@@ -333,3 +333,79 @@
   (signals error (worm.solver:make-integrator (chain-model 3) :neural-every 3 :checkpoint-every 10))
   (signals error (worm.solver:make-integrator (chain-model 3) :y-mech '(1d0 2d0)))
   (signals error (worm.solver:make-integrator (worm.core:make-compiled-model :name 'empty))))
+
+;;; Скорости прошлого шага (aux, решение 22)
+
+(defun lagged-model ()
+  "ẏ = −y + c·obs, где obs — скорость y с прошлого шага, прочитанная через aux.
+При c = 0 это затухание; при c ≠ 0 правая часть зависит от прошлой скорости,
+и порядок шагов после отката должен её восстановить."
+  (worm.core:make-compiled-model
+   :name 'lagged :n-mech 1 :n-aux 1 :n-observables 1 :n-syn 1
+   :observables
+   (lambda (y aux p obs)
+     (declare (type worm.core:dvec y aux p obs) (ignore y p))
+     (incf (aref obs 0) (aref aux 0))
+     (values))
+   :neural-output
+   (lambda (yn obs z p clock syn)
+     (declare (type worm.core:dvec yn obs z p clock syn) (ignore yn z p clock))
+     (incf (aref syn 0) (aref obs 0))
+     (values))
+   :mech-forces
+   (lambda (y syn p g)
+     (declare (type worm.core:dvec y syn p g))
+     (incf (aref g 0) (+ (- (aref y 0)) (* (aref p 0) (aref syn 0))))
+     (values))
+   :mech-matrix
+   (lambda (y syn p clock ab)
+     (declare (type worm.core:dvec y syn p clock ab) (ignore y syn p))
+     (incf (aref ab (worm.core:band-index 0 0 0 0)) (+ 1d0 (aref clock worm.core:+clock-h+)))
+     (values))))
+
+(test aux-holds-last-step-velocities
+  (let ((it (worm.solver:make-integrator (lagged-model) :params '(0.3d0) :y-mech '(1d0) :h 1d-2
+                                                        :checkpoint-every 5 :neural-every 5)))
+    (is (= 0d0 (aref (worm.solver:integrator-aux it) 0)) "до первого шага скоростей нет")
+    (let ((y0 (aref (worm.solver:integrator-y-mech it) 0)))
+      (worm.solver:step! it)
+      (is (< (abs (- (/ (- (aref (worm.solver:integrator-y-mech it) 0) y0) 1d-2)
+                     (aref (worm.solver:integrator-aux it) 0)))
+             1d-12)
+          "aux = Δy/h"))
+    (let ((v (aref (worm.solver:integrator-aux it) 0)))
+      (worm.solver:step! it)
+      (is (= v (aref (worm.solver:integrator-syn it) 0)) "модель видит скорость прошлого шага"))
+    ;; откат восстанавливает и aux: продолжение побитово как без остановки
+    (worm.solver:run-steps it 18)
+    (let ((y20 (aref (worm.solver:integrator-y-mech it) 0))
+          (a20 (aref (worm.solver:integrator-aux it) 0)))
+      (worm.solver:run-steps it 7)
+      (worm.solver:restore-checkpoint it)
+      (is (= 25 (worm.solver:integrator-step it)))
+      (worm.solver:restore-checkpoint it :back 1)
+      (is (= 20 (worm.solver:integrator-step it)))
+      (is (= y20 (aref (worm.solver:integrator-y-mech it) 0)))
+      (is (= a20 (aref (worm.solver:integrator-aux it) 0)) "aux в контрольной точке"))))
+
+(test integrator-starts-from-a-given-step
+  (let* ((a (worm.solver:make-integrator (lagged-model) :params '(0.3d0) :y-mech '(1d0) :h 1d-2
+                                                       :checkpoint-every 5 :neural-every 5)))
+    (worm.solver:run-steps a 12)
+    (let ((b (worm.solver:make-integrator (lagged-model) :params '(0.3d0) :h 1d-2 :checkpoint-every 5 :neural-every 5
+                                          :y-mech (worm.solver:integrator-y-mech a)
+                                          :aux (worm.solver:integrator-aux a)
+                                          :time (worm.solver:integrator-time a) :step 12)))
+      (is (equal '(12) (worm.solver:checkpoint-steps b)))
+      (worm.solver:run-steps a 8)
+      (worm.solver:run-steps b 8)
+      (is (= 20 (worm.solver:integrator-step b)))
+      (is (equal '(20 15 12) (worm.solver:checkpoint-steps b)))
+      (is (= (aref (worm.solver:integrator-y-mech a) 0) (aref (worm.solver:integrator-y-mech b) 0))
+          "продолжение с заданного шага побитово как без остановки"))))
+
+(test integrator-rejects-partial-aux
+  (signals error (worm.solver:make-integrator
+                  (worm.core:make-compiled-model :name 'odd :n-mech 2 :n-aux 1
+                                                 :mech-forces (lambda (&rest r) (declare (ignore r)) (values))
+                                                 :mech-matrix (lambda (&rest r) (declare (ignore r)) (values))))))

@@ -50,15 +50,17 @@
 
 (test strong-bend-keeps-compartment-volumes
   ;; Чистый изгибающий момент: одна сторона тянет, другая толкает, продольной
-  ;; силы нет. Кривизна в середине — около 9/мм, больше, чем у живого червя.
-  (let* ((body (worm.oracle:build-body :params "water-v1" :amplitude 20d0 :frequency 0d0
+  ;; силы нет. Кривизна в середине — около 7,8/мм, больше, чем у живого червя
+  ;; (κ·L до 6,7, Fang-Yen et al. 2010); хуже всего — мягкие отсеки хвоста.
+  ;; При 9,6/мм они меняют объём на 1,4% (этап 5, после калибровки EI и p₀).
+  (let* ((body (worm.oracle:build-body :params "water-v1" :amplitude 16.5d0 :frequency 0d0
                                        :wavelength 1d9 :phase (/ pi 2) :antagonist t :ramp 0.05d0))
          (worst 0d0) (it nil))
     (setf it (run-body body :h 5d-4 :time 0.2d0 :every 20
                             :on-sample (lambda (it)
                                          (setf worst (max worst (reduce #'max (worm.oracle:volume-ratios (integrator-y it) (worm.oracle:body-tube body))
                                                                         :key (lambda (r) (abs (- r 1)))))))))
-    (is (> (mid-curvature it) 8d0) "изгиб сильный: κ = ~,2F 1/мм" (mid-curvature it))
+    (is (> (mid-curvature it) 7d0) "изгиб сильнее, чем у живого червя: κ = ~,2F 1/мм" (mid-curvature it))
     (is (< worst 0.01d0) "объём отсеков меняется на ~,2F%" (* 100 worst))))
 
 (defun swim (&key (params "water-v1") (amplitude 20d0) (frequency 2d0) (wavelength 1.5d0)
@@ -91,3 +93,67 @@
         (agar (swim :params "agar-a-v1" :frequency 0.5d0 :wavelength 0.65d0 :time 3d0 :h 1d-3)))
     (is (< water -0.02d0) "вода: ~,4F мм за 0,75 с" water)
     (is (< agar -0.05d0) "агар: ~,4F мм за 3 с" agar)))
+
+;;; Этап 5: мышцы под генератором ритма уровня 1
+
+(defun gait-of (body &key (time 1.5d0) (h 5d-4) (id "gait") from-time)
+  "Записать прогон BODY в cache/test-physics/ и вернуть метрики с момента
+FROM-TIME (по умолчанию — вторая половина прогона)."
+  (let* ((dir (worm.oracle:record-body-run
+               body :time time :h h :every 0.01d0 :id id
+                    :root (merge-pathnames "cache/test-physics/" (worm.core:project-root))))
+         (run (worm.analysis:load-run dir))
+         (n (length (worm.analysis:run-data-times run))))
+    (worm.analysis:gait-metrics
+     run :from (if from-time
+                   (position-if (lambda (x) (>= x from-time)) (worm.analysis:run-data-times run))
+                   (floor n 2)))))
+
+(test muscle-wave-swims-like-the-tension-wave
+  ;; Та же волна (2 Гц, 1,5 L), что у кинематического натяжения этапа 3,
+  ;; но через кальций, функцию Хилла, f_L и f_V.
+  ;; Натяжение 15 мкН — порядка силы мышц; при 20 мкН без ослабления головы
+  ;; кинематика сминает крошечный головной отсек.
+  (let ((tension (gait-of (worm.oracle:build-body :params "water-v1" :amplitude 15d0 :frequency 2d0
+                                                  :wavelength 1.5d0 :ramp 0.5d0)
+                          :id "tension" :time 2.5d0 :from-time 1d0))
+        (muscles (gait-of (worm.oracle:build-body :params "water-v1" :muscles t :frequency 2d0
+                                                  :wavelength 1.5d0 :ramp 0.5d0)
+                          :id "muscles" :time 2.5d0 :from-time 1d0)))
+    (is (< (abs (- (getf muscles :frequency) 2d0)) 0.02d0) "частота ~,3F Гц" (getf muscles :frequency))
+    (is (< (abs (- (getf muscles :wavelength) (getf tension :wavelength))) (* 0.15d0 (getf tension :wavelength)))
+        "длина волны ~,3F L против ~,3F L у натяжения" (getf muscles :wavelength) (getf tension :wavelength))
+    (is (plusp (getf muscles :speed)) "плывёт вперёд: ~,4F мм/с" (getf muscles :speed))
+    (is (< 0.5d0 (/ (getf muscles :speed) (getf tension :speed)) 2d0)
+        "скорость ~,4F мм/с против ~,4F у натяжения" (getf muscles :speed) (getf tension :speed))
+    (is (< 2d0 (getf muscles :amplitude) 6d0) "κ·L = ~,2F" (getf muscles :amplitude))))
+
+(test calibrated-muscles-match-swimming-kinematics
+  ;; Набор water-v1 как есть: 1,76 Гц, 1,54 L; F_max подобрана по κ·L = 2,9
+  ;; (Fang-Yen et al. 2010).
+  (let ((m (gait-of (worm.oracle:build-body :params "water-v1" :muscles t :ramp 0.5d0)
+                    :time 3d0 :id "water-calibrated")))
+    (is (< (abs (- (getf m :frequency) 1.76d0)) 0.02d0) "частота ~,3F Гц" (getf m :frequency))
+    (is (< (abs (- (getf m :wavelength) 1.54d0)) 0.08d0) "длина волны ~,3F L" (getf m :wavelength))
+    (is (< (abs (- (getf m :amplitude) 2.9d0)) 0.3d0) "κ·L = ~,2F" (getf m :amplitude))
+    (is (plusp (getf m :speed)) "вперёд: ~,4F мм/с" (getf m :speed))))
+
+(test muscles-crawl-forward-on-agar
+  (let ((m (gait-of (worm.oracle:build-body :params "agar-a-v1" :muscles t :ramp 2d0)
+                    :time 10d0 :h 1d-3 :id "agar-calibrated" :from-time 3d0)))
+    (is (< (abs (- (getf m :frequency) 0.30d0)) 0.01d0) "частота ~,3F Гц" (getf m :frequency))
+    (is (< (abs (- (getf m :wavelength) 0.65d0)) 0.1d0) "длина волны ~,3F L" (getf m :wavelength))
+    (is (< 0.05d0 (getf m :speed) 0.3d0) "ползёт вперёд: ~,4F мм/с" (getf m :speed))))
+
+(test prestress-keeps-the-section-round-on-agar
+  ;; Без p₀ мениск сплющивал сечение лежащего тела на 16–19% по высоте;
+  ;; с p₀ = 30 кПа — меньше чем на 5%.
+  (let* ((body (worm.oracle:build-body :params "agar-a-v1"))
+         (it (run-body body :time 0.3d0 :every 600))
+         (y (integrator-y it))
+         (zs (loop for k below 8 collect (aref y (+ (* 3 (+ (* 25 8) k)) 2))))
+         (height (- (reduce #'max zs) (reduce #'min zs)))
+         (round-height (* 2 (aref (worm.topology:tube-ring-radius (worm.oracle:body-tube body)) 25)
+                          (cos (/ pi 8)))))
+    (is (< (- 1 (/ height round-height)) 0.05d0) "высота сечения ~,1F мкм из ~,1F"
+        (* 1000 height) (* 1000 round-height))))

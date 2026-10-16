@@ -8,4 +8,6 @@
   (c-n   128     :uN*s/mm^2 :level :estimate :source "Boyle 2012, K=40 after Berri 2009")
   (contact t)
   (meniscus-force 400 :uN/mm :level :estimate :bounds (350 900) :source "Rabets 2014, agar 1.7%")
-  (contact-stiffness 1e5 :uN/mm :level :numeric :source "проникновение под f_m меньше 1% радиуса"))
+  (contact-stiffness 1e5 :uN/mm :level :numeric :source "проникновение под f_m меньше 1% радиуса")
+  (gen-frequency  0.30  :Hz :level :measured :source "Fang-Yen 2010, agarose 2%")
+  (gen-wavelength 0.65  nil :level :measured :source "Fang-Yen 2010, agarose 2%"))

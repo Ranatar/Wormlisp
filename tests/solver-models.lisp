@@ -134,8 +134,8 @@ mech-matrix делит ноль на ноль, и срабатывает лов�
   (worm.core:make-compiled-model
    :name 'coupled :n-mech 1 :n-neural 1 :n-discrete 1 :n-observables 1 :n-syn 1
    :observables
-   (lambda (y p obs)
-     (declare (type worm.core:dvec y p obs) (ignore p))
+   (lambda (y aux p obs)
+     (declare (type worm.core:dvec y aux p obs) (ignore aux p))
      (incf (aref obs 0) (aref y 0))
      (values))
    :neural-discrete
@@ -156,8 +156,8 @@ mech-matrix делит ноль на ноль, и срабатывает лов�
        (incf (aref jac 0 0) (- (- (aref p 0)) (* 3d0 v v))))
      (values))
    :neural-output
-   (lambda (x z p clock syn)
-     (declare (type worm.core:dvec x z p clock syn) (ignore z p clock))
+   (lambda (x obs z p clock syn)
+     (declare (type worm.core:dvec x obs z p clock syn) (ignore obs z p clock))
      (incf (aref syn 0) (aref x 0))
      (values))
    :mech-forces

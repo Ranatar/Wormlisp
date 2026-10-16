@@ -139,11 +139,12 @@
         (/ (reduce #'+ (mapcar #'* dx h)) (sqrt (reduce #'+ (mapcar #'sq h))) dt)))))
 
 (defun gait-amplitude (curv from to rings length)
-  "Средний размах кривизны середины тела, умноженный на L: |κ|·L по средней трети."
-  (let ((values (loop for k from from below to
-                      append (loop for i from (floor rings 3) below (floor (* 2 rings) 3)
-                                   collect (abs (aref curv k i))))))
-    (and values (* length (/ (reduce #'max values) 1d0)))))
+  "Средняя амплитуда кривизны, умноженная на L: пик |κ| каждого кольца
+средней трети за окно, усреднённый по этим кольцам (как κ·L у Fang-Yen
+et al. 2010)."
+  (let ((peaks (loop for i from (floor rings 3) below (floor (* 2 rings) 3)
+                     collect (loop for k from from below to maximize (abs (aref curv k i))))))
+    (and peaks (> to from) (* length (/ (reduce #'+ peaks) (length peaks))))))
 
 (defun gait-metrics (run &key (from 0) (to (worm.io:frames-file-count (run-data-frames run)))
                               curvature centroids headings)

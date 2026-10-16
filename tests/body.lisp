@@ -17,10 +17,11 @@
       (loop for i from (max 0 (- j ku)) to (min (1- n) (+ j kl))
             do (setf (aref m i j) (aref ab (worm.core:band-index i j kl ku)))))))
 
-(defun kernel-jacobian-error (params kernels &key (seed 7) (rings 8))
+(defun kernel-jacobian-error (params kernels &key (seed 7) (rings 8) prestress)
   "Наибольшее расхождение якобиана модели с конечными разностями сил,
 делённое на наибольший элемент якобиана."
-  (let* ((body (worm.oracle:build-body :params params :kernels kernels :rings rings))
+  (let* ((body (worm.oracle:build-body :params params :kernels kernels :rings rings
+                                       :prestress prestress))
          (model (worm.oracle:body-model body))
          (n (worm.core:compiled-model-n-mech model))
          (kl (worm.core:compiled-model-lower-band model))
@@ -62,7 +63,30 @@
                                   ("agar-a-v1" (:long-edge :circ-edge :diagonal :diametral
                                                 :pressure :drag :contact :tension)))
         do (let ((err (kernel-jacobian-error params kernels)))
-             (is (< err 1d-7) "~A ~(~S~): относительное расхождение ~,2E" params kernels err))))
+             (is (< err 1d-7) "~A ~(~S~): относительное расхождение ~,2E" params kernels err)))
+  ;; с предварительным давлением 20 кПа: натяжения покоя и p₀ в давлении
+  (loop for kernels in '((:circ-edge) (:long-edge) (:diagonal) (:pressure)
+                         (:long-edge :circ-edge :diagonal :diametral :pressure :drag :tension))
+        do (let ((err (kernel-jacobian-error "water-v1" kernels :prestress 2d4)))
+             (is (< err 1d-7) "p₀ = 20 кПа, ~(~S~): относительное расхождение ~,2E" kernels err))))
+
+(test prestressed-rest-state-is-in-equilibrium
+  ;; Прямое тело покоя с p₀ и натяжениями рёбер покоя не испытывает сил:
+  ;; осевые гасят продольные рёбра, радиальные — окружные, касательные на
+  ;; конических концах — диагонали двух закруток.
+  (multiple-value-bind (circ long diag residual)
+      (worm.oracle:prestress-tensions (worm.topology:make-tube :rings 50 :ring-nodes 8))
+    (declare (ignore diag))
+    (is (< residual 1d-12) "невязка ~,2E" residual)
+    (is (every #'plusp circ) "окружные рёбра растянуты")
+    (is (every #'plusp long) "продольные рёбра растянуты"))
+  (let* ((body (worm.oracle:build-body :params "water-v1" :prestress 3d4))
+         (model (worm.oracle:body-model body))
+         (y (worm.oracle:body-y0 body))
+         (g (worm.core:make-dvec (length y))))
+    (funcall (worm.core:compiled-model-mech-forces model) y (worm.core:make-dvec 95)
+             (worm.oracle:body-pvec body) g)
+    (is (< (reduce #'max g :key #'abs) 1d-9) "сила покоя при 30 кПа: ~,2E мкН" (reduce #'max g :key #'abs))))
 
 (test drag-and-viscosity-go-to-b-not-to-the-jacobian
   ;; Сопротивление и вязкость линейны по скоростям и входят в B, а не в J:
@@ -113,16 +137,20 @@
 
 (test stiffness-follows-the-measured-profile
   ;; EI постоянна от головы до 2/3 длины и падает к хвосту до половины;
-  ;; k_c = 2·EI/(K·R²·Δs), поэтому EI ребра = k_c·K·R²·Δs/2.
+  ;; k_c = 2·EI/(K·R²·Δs), поэтому EI ребра = k_c·K·R²·Δs/2. В ребро идёт
+  ;; EI набора с поправкой ei-correction (этап 5): с ней EI всей модели под
+  ;; чистым моментом равна заданной.
   (let* ((body (worm.oracle:build-body :params "water-v1"))
+         (set (worm.oracle:body-params body))
+         (target (* (worm.params:param-value set :bending-ei) (worm.params:param-value set :ei-correction)))
          (tube (worm.oracle:body-tube body))
          (k (worm.oracle:body-long-stiffness body))
          (radius (worm.topology:tube-ring-radius tube))
          (ds (/ 1d0 49)))
     (flet ((ei (i) (/ (* (aref k (* 8 i)) 8 (expt (* 0.5d0 (+ (aref radius i) (aref radius (1+ i)))) 2) ds) 2)))
-      (is (worm.core:approx= 0.22d0 (ei 24) :rel 1d-12) "середина тела: EI из набора")
-      (is (worm.core:approx= 0.22d0 (ei 2) :rel 1d-12) "голова: та же EI")
-      (is (< 0.11d0 (ei 48) 0.13d0) "кончик хвоста: почти вдвое мягче")
+      (is (worm.core:approx= target (ei 24) :rel 1d-12) "середина тела: EI из набора")
+      (is (worm.core:approx= target (ei 2) :rel 1d-12) "голова: та же EI")
+      (is (< 0.5d0 (/ (ei 48) target) 0.6d0) "кончик хвоста: почти вдвое мягче")
       (is (> (aref k 0) (aref k (* 8 24))) "к тонким концам ребро жёстче"))))
 
 (test actuation-drives-the-two-sides-in-antiphase
@@ -134,6 +162,7 @@
          (syn (worm.core:make-dvec 95))
          (muscles (worm.anatomy:muscle-binding-muscles (worm.oracle:body-binding body))))
     (funcall (worm.core:compiled-model-neural-output model) (worm.core:make-dvec 0)
+             (worm.core:make-dvec (worm.core:compiled-model-n-observables model))
              (worm.core:make-dvec 0) (worm.oracle:body-pvec body)
              (worm.core:dvec-from '(0.1d0 0d0 0)) syn)
     (is (every (lambda (x) (<= 0d0 x 10d0)) syn) "натяжение мышцы неотрицательно и не больше амплитуды")

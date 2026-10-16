@@ -18,8 +18,12 @@
    ;; модель
    #:body #:body-p #:build-body #:body-model #:body-tube #:body-anatomy #:body-binding
    #:body-params #:body-y0 #:body-pvec #:body-medium #:body-kernels
-   #:body-long-stiffness #:body-rest-volume
-   #:make-body-integrator #:set-body-param
+   #:body-long-stiffness #:body-rest-volume #:body-muscles-p #:body-y0-neural
+   #:body-f-max #:body-lambda-min #:body-activations
+   #:make-body-integrator #:set-body-param #:prestress-tensions
+   ;; мышца
+   #:ca-steady #:hill-activation #:force-length #:force-velocity
+   #:muscle-f-max #:muscle-lambda-min #:muscle-rest-lengths #:muscle-geometry
    ;; размещение и наблюдаемые
    #:arc-coords #:place-on-surface #:ring-curvatures #:weighted-centroid
    #:volume-ratios #:+p-layout+

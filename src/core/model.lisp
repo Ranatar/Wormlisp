@@ -11,17 +11,24 @@
 ;;;; перед вызовом обнуляет, а функции только прибавляют к ним: так
 ;;;; сгенерированный код рассеивает вклады элементов без лишних проходов.
 ;;;;
-;;;;   observables      (y-mech p obs)               наблюдаемые: кривизна колец и т. п.
+;;;;   observables      (y-mech aux p obs)           наблюдаемые: кривизна колец, длины и
+;;;;                                                 скорости мышц и т. п.
 ;;;;   neural-discrete  (obs z p clock)              шаг дискретного состояния z (уровень 2),
 ;;;;                                                 меняет z на месте
 ;;;;   neural-rhs       (y-neural obs z p clock f)   правая часть нервов уровня 3 при tₙ
 ;;;;   neural-jacobian  (y-neural obs z p clock jac) ∂f/∂y-neural, плотная матрица n×n
-;;;;   neural-output    (y-neural z p clock syn)     синаптический вход мышц I^syn при tₙ + h
+;;;;   neural-output    (y-neural obs z p clock syn) выход нервно-мышечной части при tₙ + h:
+;;;;                                                 натяжение мышц (или их вход)
 ;;;;   mech-forces      (y-mech syn p g)             G(y): силы на узлы и правые части кальция
 ;;;;   mech-matrix      (y-mech syn p clock ab)      лента матрицы шага B(y) − h·∂G/∂y
 ;;;;   check-state      (y-mech p)                   NIL или (values причина номер) —
 ;;;;                                                 проверки вроде V/V⁰ отсеков
 ;;;;   event-functions  (y-mech y-neural z p out)    значения функций событий (этап 10)
+;;;;
+;;;; aux — скорости y-mech прошлого шага, Δy/h (решение 22): решатель
+;;;; записывает их после механического шага, если n-aux = n-mech, и хранит в
+;;;; контрольных точках; при n-aux = 0 их нет. Через них модель читает
+;;;; lagged-величины вроде скорости укорочения мышцы.
 ;;;;
 ;;;; clock — вектор из трёх чисел: tₙ (начало шага), h и номер шага. Время и
 ;;;; шаг передаются вектором, а не числами, и функции ничего не возвращают
@@ -42,7 +49,7 @@
   (n-discrete 0 :type index :read-only t)    ; длина z
   (n-observables 0 :type index :read-only t) ; длина obs
   (n-syn 0 :type index :read-only t)         ; длина syn (число мышц)
-  (n-aux 0 :type index :read-only t)         ; длина aux: скорости прошлого шага для lagged
+  (n-aux 0 :type index :read-only t)         ; длина aux: 0 или n-mech (скорости прошлого шага)
   (lower-band 0 :type index :read-only t)    ; число поддиагоналей ленты механики
   (upper-band 0 :type index :read-only t)    ; число наддиагоналей ленты механики
   (topology nil :read-only t)                ; топология трубки (worm.topology)

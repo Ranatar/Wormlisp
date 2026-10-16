@@ -2,12 +2,13 @@
 ;;;;
 ;;;; Архитектура, «Решатель». Шаг h — две подсистемы по очереди:
 ;;;;
-;;;;   1. наблюдаемые по y-mech(tₙ);
+;;;;   1. наблюдаемые по y-mech(tₙ) и скоростям прошлого шага aux;
 ;;;;   2. нервы до tₙ₊₁: дискретное состояние z (уровень 2), затем
 ;;;;      линейно-неявный шаг y-neural (уровень 3) с плотной LU, матрица
 ;;;;      которой пересобирается раз в R шагов (по абсолютному номеру шага),
-;;;;      затем выход I^syn при tₙ₊₁ — постоянный в пределах шага;
-;;;;   3. механика: (B − h·∂G/∂y)·Δy = h·G, ленточная LU, y-mech += Δy;
+;;;;      затем выход syn при tₙ₊₁ — постоянный в пределах шага;
+;;;;   3. механика: (B − h·∂G/∂y)·Δy = h·G, ленточная LU, y-mech += Δy,
+;;;;      aux = Δy/h, если модель их читает (n-aux = n-mech);
 ;;;;   4. проверки: ловушки плавающей точки, нечисловые значения, check-state;
 ;;;;   5. время и номер шага, контрольная точка раз в Q шагов.
 ;;;;
@@ -39,7 +40,7 @@
   (y-mech nil :type dvec :read-only t)
   (y-neural nil :type dvec :read-only t)
   (z nil :type dvec :read-only t)
-  (aux nil :type dvec :read-only t)       ; скорости прошлого шага для lagged (этап 5)
+  (aux nil :type dvec :read-only t)       ; скорости y-mech прошлого шага (lagged)
   (time 0d0 :type double-float)
   (step 0 :type fixnum)
   (h 1d-4 :type double-float)
@@ -105,17 +106,22 @@
                     :aux (make-dvec (length (integrator-aux it)))
                     :params (make-dvec (length (integrator-params it)))))
 
-(defun make-integrator (model &key params y-mech y-neural z aux (h 1d-4) (time 0d0)
+(defun make-integrator (model &key params y-mech y-neural z aux (h 1d-4) (time 0d0) (step 0)
                                    (neural-every 10) (checkpoint-every 100)
                                    (checkpoint-capacity 10))
   "Интегратор для MODEL с начальным состоянием и параметрами.
 NEURAL-EVERY — R, CHECKPOINT-EVERY — Q (кратно R), CHECKPOINT-CAPACITY — C.
-Сразу сохраняет контрольную точку шага 0, так что откат есть всегда."
+STEP — номер шага, с которого продолжается прогон (например, из контрольной
+точки на диске): от него зависят расписания пересборки и контрольных точек.
+Сразу сохраняет контрольную точку начального шага, так что откат есть всегда."
   (unless (and (plusp neural-every) (plusp checkpoint-every)
                (zerop (mod checkpoint-every neural-every)))
     (error "интервал контрольных точек Q = ~D должен быть кратен R = ~D"
            checkpoint-every neural-every))
   (unless (plusp checkpoint-capacity) (error "нужна хотя бы одна контрольная точка"))
+  (unless (member (compiled-model-n-aux model) (list 0 (compiled-model-n-mech model)))
+    (error "у модели ~A n-aux = ~D: скорости прошлого шага либо не нужны (0), либо все (n-mech = ~D)"
+           (compiled-model-name model) (compiled-model-n-aux model) (compiled-model-n-mech model)))
   (unless (and (compiled-model-mech-forces model) (compiled-model-mech-matrix model))
     (error "у модели ~A нет механики" (compiled-model-name model)))
   (let* ((nm (compiled-model-n-mech model))
@@ -129,7 +135,7 @@ NEURAL-EVERY — R, CHECKPOINT-EVERY — Q (кратно R), CHECKPOINT-CAPACITY
               :y-neural (copy-or-zero y-neural nn "y-neural")
               :z (copy-or-zero z (compiled-model-n-discrete model) "z")
               :aux (copy-or-zero aux (compiled-model-n-aux model) "aux")
-              :time (float time 0d0) :h (float h 0d0)
+              :time (float time 0d0) :step step :h (float h 0d0)
               :obs (make-dvec (compiled-model-n-observables model))
               :syn (make-dvec (compiled-model-n-syn model))
               :n-mech nm :kl kl :ku ku
@@ -285,7 +291,7 @@ NEURAL-EVERY — R, CHECKPOINT-EVERY — Q (кратно R), CHECKPOINT-CAPACITY
     (when output
       (setf (integrator-phase it) :neural-output)
       (fill (integrator-syn it) 0d0)
-      (funcall (the function output) yn z p clock (integrator-syn it)))))
+      (funcall (the function output) yn obs z p clock (integrator-syn it)))))
 
 (defun mech-substep (it)
   "Механика: (B − h·∂G/∂y)·Δy = h·G."
@@ -312,7 +318,11 @@ NEURAL-EVERY — R, CHECKPOINT-EVERY — Q (кратно R), CHECKPOINT-CAPACITY
     (when (band-factor! ab n kl ku (integrator-ipiv-mech it))
       (blowup it :singular-matrix "механика"))
     (band-solve! ab n kl ku (integrator-ipiv-mech it) g)
-    (dotimes (i n) (incf (aref y i) (aref g i)))))
+    (dotimes (i n) (incf (aref y i) (aref g i)))
+    (let ((aux (integrator-aux it)))
+      (when (= (length aux) n)
+        (let ((inv (/ 1d0 h)))
+          (dotimes (i n) (setf (aref aux i) (* inv (aref g i)))))))))
 
 (defun check-step (it)
   (declare (type integrator it) (optimize speed))
@@ -350,8 +360,8 @@ NEURAL-EVERY — R, CHECKPOINT-EVERY — Q (кратно R), CHECKPOINT-CAPACITY
     (when observe
       (setf (integrator-phase it) :observables)
       (fill (integrator-obs it) 0d0)
-      (funcall (the function observe) (integrator-y-mech it) (integrator-params it)
-               (integrator-obs it))))
+      (funcall (the function observe) (integrator-y-mech it) (integrator-aux it)
+               (integrator-params it) (integrator-obs it))))
   (neural-substep it)
   (mech-substep it)
   (check-step it)
@@ -376,7 +386,8 @@ NEURAL-EVERY — R, CHECKPOINT-EVERY — Q (кратно R), CHECKPOINT-CAPACITY
 (defun clamp-state (it)
   "Заменить нечисловые значения значениями начала шага."
   (loop for (now . before) in (list (cons (integrator-y-mech it) (integrator-y-mech0 it))
-                                    (cons (integrator-y-neural it) (integrator-y-neural0 it)))
+                                    (cons (integrator-y-neural it) (integrator-y-neural0 it))
+                                    (cons (integrator-aux it) (integrator-aux0 it)))
         do (dotimes (i (length now))
              (when (non-finite-p (aref now i))
                (setf (aref now i) (aref before i))))))

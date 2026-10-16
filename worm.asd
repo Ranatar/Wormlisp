@@ -136,13 +136,14 @@
   :in-order-to ((test-op (test-op "worm/tests"))))
 
 (defsystem "worm/oracle"
-  :description "Ручные ядра тела и среды (этап 3): эталон для кодогенерации."
+  :description "Ручные ядра тела, среды и мышц (этапы 3 и 5): эталон для кодогенерации."
   :depends-on ("worm/solver" "worm/topology" "worm/anatomy" "worm/params"
                "worm/io" "worm/analysis")
   :pathname "tests/oracle/"
   :serial t
   :components ((:file "package")
                (:file "kernels")
+               (:file "muscle")
                (:file "body")
                (:file "record")))
 
@@ -162,6 +163,7 @@
                (:file "solver" :depends-on ("solver-models"))
                (:file "body" :depends-on ("suite"))
                (:file "physics" :depends-on ("body"))
+               (:file "muscle" :depends-on ("suite"))
                (:file "io" :depends-on ("suite"))
                (:file "analysis" :depends-on ("io"))
                (:file "server" :depends-on ("suite")))

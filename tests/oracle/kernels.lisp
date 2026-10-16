@@ -5,7 +5,9 @@
 ;;;; y[3n + c]. Механика передемпфирована: B = M + D, где M — сопротивление
 ;;;; среды, D — вязкость рёбер (дизайн, «Уравнение движения»).
 ;;;;
-;;;; Ядра не выделяют память: рабочие массивы передаются снаружи.
+;;;; Ядра не выделяют память: рабочие массивы передаются снаружи. Ядра,
+;;;; которым модель передаёт числа из вектора параметров, встраиваются:
+;;;; число в полном вызове упаковывалось бы в кучу на каждом шаге.
 
 (in-package #:worm.oracle)
 
@@ -37,11 +39,12 @@
       (decf (aref g pb) (* s dx)) (decf (aref g (+ pb 1)) (* s dy)) (decf (aref g (+ pb 2)) (* s dz))))
   (values))
 
-(defun edge-matrix (y a b rest k eta tension h ab kl ku)
+(defun edge-matrix (y a b rest k eta tension clock ab kl ku)
   "Вклад рёбер в A = B − h·J: блок M = (h·k + η − h·f/ℓ)·uuᵀ + (h·f/ℓ)·I
-на диагональные блоки концов и −M на внедиагональные."
-  (declare (type dvec y rest k eta ab) (type ivec a b) (type (or null dvec) tension)
-           (type double-float h) (type index kl ku))
+на диагональные блоки концов и −M на внедиагональные. Шаг h берётся из
+вектора CLOCK, а не передаётся числом: число в вызове упаковывалось бы."
+  (declare (type dvec y rest k eta clock ab) (type ivec a b) (type (or null dvec) tension)
+           (type index kl ku))
   (dotimes (e (length a))
     (let* ((pa (* 3 (aref a e))) (pb (* 3 (aref b e)))
            (dx (- (aref y pb) (aref y pa)))
@@ -50,9 +53,10 @@
            (l (sqrt (+ (* dx dx) (* dy dy) (* dz dz))))
            (ux (/ dx l)) (uy (/ dy l)) (uz (/ dz l))
            (f (+ (* (aref k e) (- l (aref rest e))) (if tension (aref tension e) 0d0)))
+           (h (aref clock +clock-h+))
            (c2 (/ (* h f) l))
            (c1 (- (+ (* h (aref k e)) (aref eta e)) c2)))
-      (declare (type fixnum pa pb) (type double-float dx dy dz l ux uy uz f c1 c2))
+      (declare (type fixnum pa pb) (type double-float dx dy dz l ux uy uz f h c1 c2))
       (macrolet ((block-entries ()
                    `(progn
                       ,@(loop for (i ui) in '((0 ux) (1 uy) (2 uz))
@@ -85,6 +89,7 @@
 ;;; Сопротивление среды (дизайн, «Среда»): блок узла
 ;;; M = (C_t·ttᵀ + C_n·(I − ttᵀ))·Δs/K — в B, без множителя h.
 
+(declaim (inline drag-matrix))
 (defun drag-matrix (tangents ring-ds rings ring-nodes c-t c-n ab kl ku)
   (declare (type dvec tangents ring-ds ab) (type index rings ring-nodes kl ku)
            (type double-float c-t c-n))
@@ -109,6 +114,7 @@
 ;;; Контакт с поверхностью z = 0 (дизайн, «Контакт с поверхностью»):
 ;;; F_z = k_s·max(0, −z) − f_m·Δs/K.
 
+(declaim (inline contact-forces))
 (defun contact-forces (y ring-ds rings ring-nodes k-s f-m g)
   (declare (type dvec y ring-ds g) (type index rings ring-nodes) (type double-float k-s f-m))
   (dotimes (i rings)
@@ -121,6 +127,7 @@
           (incf (aref g pz) (- (if (< z 0d0) (* k-s (- z)) 0d0) pull))))))
   (values))
 
+(declaim (inline contact-matrix))
 (defun contact-matrix (y n-nodes k-s h ab kl ku)
   (declare (type dvec y ab) (type index n-nodes kl ku) (type double-float k-s h))
   (dotimes (n n-nodes)
@@ -152,8 +159,12 @@
   (gext (make-dvec n) :type dvec)
   (hext (make-dmat n n) :type dmat)
   (grad (make-dvec m) :type dvec)
-  (hess (make-dmat m m) :type dmat))
+  (hess (make-dmat m m) :type dmat)
+  (volume (make-dvec 1) :type dvec))   ; объём последнего отсека — без упаковки при возврате
 
+;; встраивается: иначе координаты треугольника, которые уходят в неё
+;; полным вызовом, SBCL держит упакованными и в ветке без гессиана
+(declaim (inline add-skew))
 (defun add-skew (h row col v0 v1 v2 scale)
   "H[3row…, 3col…] += scale·[v]×."
   (declare (type dmat h) (type fixnum row col) (type double-float v0 v1 v2 scale))
@@ -167,6 +178,12 @@
 (defun compartment-geometry (y c ring-nodes scratch with-hessian)
   "Объём отсека C. В SCRATCH: grad — ∂V/∂x по 2K узлам отсека (6K чисел),
 при WITH-HESSIAN — hess, матрица 6K × 6K вторых производных."
+  (%compartment-geometry y c ring-nodes scratch with-hessian)
+  (aref (pressure-scratch-volume scratch) 0))
+
+(defun %compartment-geometry (y c ring-nodes scratch with-hessian)
+  "То же, что COMPARTMENT-GEOMETRY, но объём только в SCRATCH (volume):
+горячий путь не упаковывает число при возврате."
   (declare (type dvec y) (type index c ring-nodes) (type pressure-scratch scratch))
   (let* ((kk ring-nodes)
          (pts (pressure-scratch-pts scratch))
@@ -199,9 +216,11 @@
             (setf (aref pts o) (/ cx kk) (aref pts (+ o 1)) (/ cy kk) (aref pts (+ o 2)) (/ cz kk))))))
     (fill gext 0d0)
     (when with-hessian (fill (sb-ext:array-storage-vector hext) 0d0))
-    (flet ((tri (ia ib ic)
-             (declare (type fixnum ia ib ic))
-             (let* ((a (* 3 ia)) (b (* 3 ib)) (cc (* 3 ic))
+    ;; макрос, а не локальная функция: VOLUME, которую меняет треугольник,
+    ;; иначе стала бы замкнутой изменяемой переменной и упаковывалась бы в кучу
+    (macrolet ((tri (ia-form ib-form ic-form)
+             `(let* ((ia ,ia-form) (ib ,ib-form) (ic ,ic-form)
+                     (a (* 3 ia)) (b (* 3 ib)) (cc (* 3 ic))
                     (ax (aref pts a)) (ay (aref pts (+ a 1))) (az (aref pts (+ a 2)))
                     (bx (aref pts b)) (by (aref pts (+ b 1))) (bz (aref pts (+ b 2)))
                     (cx (aref pts cc)) (cy (aref pts (+ cc 1))) (cz (aref pts (+ cc 2)))
@@ -209,7 +228,7 @@
                     (bcx (- (* by cz) (* bz cy))) (bcy (- (* bz cx) (* bx cz))) (bcz (- (* bx cy) (* by cx)))
                     (cax (- (* cy az) (* cz ay))) (cay (- (* cz ax) (* cx az))) (caz (- (* cx ay) (* cy ax)))
                     (abx (- (* ay bz) (* az by))) (aby (- (* az bx) (* ax bz))) (abz (- (* ax by) (* ay bx))))
-               (declare (type fixnum a b cc)
+               (declare (type fixnum ia ib ic a b cc)
                         (type double-float ax ay az bx by bz cx cy cz bcx bcy bcz cax cay caz abx aby abz))
                (incf volume (* sixth (+ (* ax bcx) (* ay bcy) (* az bcz))))
                (incf (aref gext a) (* sixth bcx)) (incf (aref gext (+ a 1)) (* sixth bcy))
@@ -221,9 +240,7 @@
                (when with-hessian
                  (add-skew hext ia ib cx cy cz (- sixth)) (add-skew hext ib ia cx cy cz sixth)
                  (add-skew hext ia ic bx by bz sixth) (add-skew hext ic ia bx by bz (- sixth))
-                 (add-skew hext ib ic ax ay az (- sixth)) (add-skew hext ic ib ax ay az sixth))
-               (values))))
-      (declare (inline tri))
+                 (add-skew hext ib ic ax ay az (- sixth)) (add-skew hext ic ib ax ay az sixth)))))
       (dotimes (k kk)
         (let ((k1 (mod (1+ k) kk)))
           (tri k k1 (+ kk k))
@@ -253,35 +270,40 @@
                             (+ (aref hext jr ms)
                                (* inv (+ (aref hext jr oms) (aref hext ojr ms)))
                                (* inv inv (aref hext ojr oms))))))))))))
-      volume)))
+      (setf (aref (pressure-scratch-volume scratch) 0) volume)
+      (values))))
 
-(defun pressure-forces (y n-compartments ring-nodes rest-volume k-p scratch g)
-  "Силы давления p·∂V/∂x, p = k_p·(V⁰ − V)/V⁰."
+(declaim (inline pressure-forces))
+(defun pressure-forces (y n-compartments ring-nodes rest-volume k-p p0 scratch g)
+  "Силы давления p·∂V/∂x, p = p₀ + k_p·(V⁰ − V)/V⁰ (p₀ — предварительное давление)."
   (declare (type dvec y rest-volume g) (type index n-compartments ring-nodes)
-           (type double-float k-p) (type pressure-scratch scratch))
+           (type double-float k-p p0) (type pressure-scratch scratch))
   (let ((grad (pressure-scratch-grad scratch)))
     (dotimes (c n-compartments)
       (let* ((v0 (aref rest-volume c))
-             (v (compartment-geometry y c ring-nodes scratch nil))
-             (p (/ (* k-p (- v0 v)) v0))
+             (v (progn (%compartment-geometry y c ring-nodes scratch nil)
+                       (aref (pressure-scratch-volume scratch) 0)))
+             (p (+ p0 (/ (* k-p (- v0 v)) v0)))
              (base (* 3 c ring-nodes)))
         (declare (type double-float v0 v p) (type fixnum base))
         (dotimes (q (* 6 ring-nodes))
           (incf (aref g (+ base q)) (* p (aref grad q)))))))
   (values))
 
-(defun pressure-matrix (y n-compartments ring-nodes rest-volume k-p scratch h ab kl ku)
+(declaim (inline pressure-matrix))
+(defun pressure-matrix (y n-compartments ring-nodes rest-volume k-p p0 scratch h ab kl ku)
   "Вклад давления в A: −h·(p·∇²V − (k_p/V⁰)·∇V ∇Vᵀ) на блок 6K × 6K отсека."
   (declare (type dvec y rest-volume ab) (type index n-compartments ring-nodes kl ku)
-           (type double-float k-p h) (type pressure-scratch scratch))
+           (type double-float k-p p0 h) (type pressure-scratch scratch))
   (let ((grad (pressure-scratch-grad scratch))
         (hess (pressure-scratch-hess scratch))
         (m (* 6 ring-nodes)))
     (declare (type fixnum m))
     (dotimes (c n-compartments)
       (let* ((v0 (aref rest-volume c))
-             (v (compartment-geometry y c ring-nodes scratch t))
-             (p (/ (* k-p (- v0 v)) v0))
+             (v (progn (%compartment-geometry y c ring-nodes scratch t)
+                       (aref (pressure-scratch-volume scratch) 0)))
+             (p (+ p0 (/ (* k-p (- v0 v)) v0)))
              (stiff (/ k-p v0))
              (base (* 3 c ring-nodes)))
         (declare (type double-float v0 v p stiff) (type fixnum base))
@@ -289,4 +311,22 @@
           (dotimes (s m)
             (band+ ab (+ base r) (+ base s) kl ku
                    (* (- h) (- (* p (aref hess r s)) (* stiff (aref grad r) (aref grad s))))))))))
+  (values))
+
+;;; Натяжения рёбер: покой и мышцы
+
+(declaim (inline scale-into))
+(defun scale-into (out source factor)
+  "OUT[i] = FACTOR·SOURCE[i]."
+  (declare (type dvec out source) (type double-float factor))
+  (dotimes (i (length out)) (setf (aref out i) (* factor (aref source i))))
+  (values))
+
+(defun scatter-muscle-tension (tension offsets edges weights syn)
+  "Прибавить натяжение каждой мышцы к её продольным рёбрам с весами привязки."
+  (declare (type dvec tension weights syn) (type ivec offsets edges))
+  (dotimes (m (length syn))
+    (let ((s (aref syn m)))
+      (loop for q of-type fixnum from (aref offsets m) below (aref offsets (1+ m))
+            do (incf (aref tension (aref edges q)) (* (aref weights q) s)))))
   (values))

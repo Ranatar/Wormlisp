@@ -80,7 +80,8 @@
     (is (eq :posterior (worm.params:param-value s 'rf-direction)))
     (is (eql 12 (worm.params:param-value s 'units)))
     (is (close-to -35d0 (worm.params:param-value s 'neuron-e-leak)))
-    (is (equal '(:v-max) (worm.params:missing-parameters s)))))
+    (is (close-to 30d0 (worm.params:param-value s 'v-max)) "длин покоя в секунду")
+    (is (null (worm.params:missing-parameters s)) "на этапе 5 заданы все параметры")))
 
 (test media-sets-inherit-and-override
   (let ((water (worm.params:load-param-set "water-v1"))
@@ -105,17 +106,19 @@
   (finishes (load-text-set "(params t1 (tau-cuticle 5 :ms) (tail-softening 0.5 nil) (contact t))")))
 
 (test unbound-question-mark-is-rejected
-  (signals worm.params:missing-value (worm.params:load-param-set "base-v1" :require :all))
-  (handler-case (worm.params:load-param-set "base-v1" :require :all)
-    (worm.params:missing-value (e)
-      (is (equal '(:v-max) (worm.params:missing-value-names e)))))
-  (finishes (worm.params:load-param-set "base-v1" :require '(tau-ca bending-ei)))
-  (let ((s (worm.params:load-param-set "base-v1")))
-    (signals worm.params:missing-value (worm.params:param-value s 'v-max))
-    (is (= 7d0 (handler-bind ((worm.params:missing-value
-                                (lambda (c) (declare (ignore c)) (use-value 7d0))))
-                 (worm.params:param-value s 'v-max))))
-    (signals worm.params:missing-value (worm.params:require-params s '(v-max hill-n)))))
+  (let ((text "(params t1 (tau-ca 40 :ms) (hill-n 3 nil) (v-max ? \"1/s\"))"))
+    (signals worm.params:missing-value (load-text-set text :require :all))
+    (handler-case (load-text-set text :require :all)
+      (worm.params:missing-value (e)
+        (is (equal '(:v-max) (worm.params:missing-value-names e)))))
+    (finishes (load-text-set text :require '(tau-ca hill-n)))
+    (let ((s (load-text-set text)))
+      (is (equal '(:v-max) (worm.params:missing-parameters s)))
+      (signals worm.params:missing-value (worm.params:param-value s 'v-max))
+      (is (= 7d0 (handler-bind ((worm.params:missing-value
+                                  (lambda (c) (declare (ignore c)) (use-value 7d0))))
+                   (worm.params:param-value s 'v-max))))
+      (signals worm.params:missing-value (worm.params:require-params s '(v-max hill-n))))))
 
 (test wrong-dimension-is-rejected
   (signals worm.params:unit-mismatch (load-text-set "(params t1 (tau-ca 40 :mm))"))

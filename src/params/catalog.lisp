@@ -20,6 +20,8 @@
 ;;; Кутикула и ткани
 (define-parameter bending-ei     :unit :uN*mm^2 :bounds (0 100)
   :doc "Изгибная жёсткость тела EI в середине.")
+(define-parameter ei-correction  :unit nil :bounds (0.1 10)
+  :doc "Множитель k_c всех рёбер, при котором эффективная EI модели равна bending-ei.")
 (define-parameter tail-softening :unit nil :bounds (0 1)
   :doc "Доля, на которую хвостовая треть мягче середины.")
 (define-parameter k-circ-ratio   :unit nil :bounds (0 1000) :doc "k_circ / k_c.")
@@ -44,7 +46,20 @@
 (define-parameter head-weakening :unit nil :bounds (0 1) :doc "Множитель первой клетки каждого ряда.")
 (define-parameter max-shortening :unit nil :bounds (0 1) :doc "Предельное укорочение Δ_M.")
 (define-parameter hill-a-ratio   :unit nil :bounds (0 10) :doc "a/F₀ гиперболы Хилла.")
-(define-parameter v-max          :unit :mm/s :bounds (0 1000) :doc "Наибольшая скорость укорочения.")
+(define-parameter v-max          :unit "1/s" :bounds (0 1000)
+  :doc "Наибольшая скорость укорочения, длин покоя в секунду.")
+(define-parameter rate-filter    :unit :ms :bounds (0.01 1000)
+  :doc "Постоянная сглаживания скорости укорочения, которую читает f_V.")
+(define-parameter hill-eccentric :unit nil :bounds (1 3)
+  :doc "Предел f_V при быстром удлинении под нагрузкой.")
+(define-parameter syn-half       :unit nil :bounds (0 10)
+  :doc "I½ сигмоиды Ca∞(I); вход нормирован, 1 — полный.")
+(define-parameter syn-width      :unit nil :bounds (0.001 10) :doc "Ширина σ сигмоиды Ca∞(I).")
+
+;;; Нервное управление, уровень 1 (генератор ритма)
+(define-parameter gen-amplitude  :unit nil :bounds (0 10) :doc "Амплитуда A входа мышц, нормирована.")
+(define-parameter gen-frequency  :unit :Hz :bounds (0 20) :doc "Частота бегущей волны входа.")
+(define-parameter gen-wavelength :unit nil :bounds (0.05 20) :doc "Длина волны входа, доля L.")
 
 ;;; Нервное управление, уровень 2
 (define-parameter units          :kind :integer :bounds (1 95) :live nil
