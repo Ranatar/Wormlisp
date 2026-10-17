@@ -579,7 +579,7 @@ flowchart TB
 
 **Зависит от:** этапа 14.
 
-**Итог** (17.10.2026, коммит `КОММИТ`). Эталон — `reference/boyle2012-wormsim/medium-{0,0.001,0.01,0.1,1}.wcon`: WormSim собирается и считается скриптом `scripts/boyle-wormsim.sh` (повторный запуск даёт тот же `simdata.csv` побайтно), в WCON переводит `scripts/make-boyle-reference.lisp`; метрики закреплены тестом `boyle-reference-gait`. Среда во всех развёртках — ось `medium` с новой опцией `:interpolate`: одна ось линейно ведёт C_t и C_n от воды к агару, как MEDIUM в WormSim. Наш второй уровень меряется по `summary.csv` (кольца), исходная модель — `track-gait`; на гладкой линии модели они расходятся меньше чем на 6%.
+**Итог** (17.10.2026, коммит `75872e9`; на чистом клоне `make test` — 4080 проверок, `make test-full` — ещё 97, 18 мин). Эталон — `reference/boyle2012-wormsim/medium-{0,0.001,0.01,0.1,1}.wcon`: WormSim собирается и считается скриптом `scripts/boyle-wormsim.sh` (повторный запуск даёт тот же `simdata.csv` побайтно), в WCON переводит `scripts/make-boyle-reference.lisp`; метрики закреплены тестом `boyle-reference-gait`. Среда во всех развёртках — ось `medium` с новой опцией `:interpolate`: одна ось линейно ведёт C_t и C_n от воды к агару, как MEDIUM в WormSim. Наш второй уровень меряется по `summary.csv` (кольца), исходная модель — `track-gait`; на гладкой линии модели они расходятся меньше чем на 6%.
 
 Отличия нервной части по одному (развёртки `boyle-base`, `boyle-rf`, `boyle-filter`, `boyle-gain`, `boyle-all`; частота, Гц / λ, L / κ·L):
 
