@@ -82,3 +82,20 @@
       (is (< 7d0 (mid :amplitude) 9.5d0) "κ·L ~,2F" (mid :amplitude))
       (is (< 0.07d0 (mid :speed) 0.12d0) "скорость ~,3F мм/с" (mid :speed))
       (is (< 0.5d0 (mid :slip) 0.8d0) "доля скорости волны ~,2F" (mid :slip)))))
+
+(test boyle-reference-gait
+  ;; Исходная модель Бойла (reference/boyle2012-wormsim, план, этап 15):
+  ;; от воды к агару частота падает, длина волны падает, κ·L растёт.
+  (flet ((gait (m) (worm.analysis:track-gait
+                    (worm.analysis:read-track
+                     (merge-pathnames (format nil "reference/boyle2012-wormsim/medium-~A.wcon" m)
+                                      (worm.core:project-root)))
+                    :from 5d0 :window 5d0 :min-speed 0d0)))
+    (let ((water (gait "0")) (agar (gait "1")))
+      (flet ((mid (g key) (second (getf g key))))
+        (is (< 2.1d0 (mid water :frequency) 2.35d0) "вода: ~,3F Гц" (mid water :frequency))
+        (is (< 1.05d0 (mid water :wavelength) 1.3d0) "вода: λ ~,3F L" (mid water :wavelength))
+        (is (< 2.8d0 (mid water :amplitude) 3.6d0) "вода: κ·L ~,2F" (mid water :amplitude))
+        (is (< 0.36d0 (mid agar :frequency) 0.44d0) "агар: ~,3F Гц" (mid agar :frequency))
+        (is (< 0.56d0 (mid agar :wavelength) 0.68d0) "агар: λ ~,3F L" (mid agar :wavelength))
+        (is (< 7d0 (mid agar :amplitude) 8.6d0) "агар: κ·L ~,2F" (mid agar :amplitude))))))

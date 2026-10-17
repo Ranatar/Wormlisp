@@ -154,9 +154,9 @@
                      (if (< (1+ i) n) (+ (* (- 1 f) (nth i s)) (* f (nth (1+ i) s))) (nth i s)))))
       (and (plusp n) (list (at 0.25d0) (at 0.5d0) (at 0.75d0))))))
 
-(defun track-windows (track &key (window 10d0) (smooth 0.1d0) (max-gap 0.25d0))
-  "Метрики походки трека по окнам WINDOW секунд внутри отрезков: список
-(начало конец . plist gait-metrics)."
+(defun track-windows (track &key (window 10d0) (smooth 0.1d0) (max-gap 0.25d0) ((:from start-time) 0d0))
+  "Метрики походки трека по окнам WINDOW секунд внутри отрезков, начиная с
+времени FROM (разгон модели): список (начало конец . plist gait-metrics)."
   (loop for (from . to) in (track-segments track :max-gap max-gap)
         nconc (multiple-value-bind (xs ys) (filled-frames track from to)
                 (multiple-value-bind (curv cents heads) (spine-series xs ys smooth)
@@ -164,23 +164,26 @@
                          (data (make-run-data :times times :rings (track-points track)
                                               :length (track-length track)))
                          (n (length times)))
-                    (loop with start = 0
-                          for t0 = (aref times start)
-                          for end = (position-if (lambda (x) (>= x (+ t0 window))) times :start start)
-                          while end
-                          collect (list* t0 (aref times (1- end))
-                                         (gait-metrics data :from start :to end :curvature curv
-                                                            :centroids cents :headings heads))
-                          do (setf start end)
-                          while (< start (1- n))))))))
+                    (let ((start (or (position-if (lambda (x) (>= x start-time)) times) n))
+                          (out '()))
+                      (loop while (< start (1- n))
+                            do (let* ((t0 (aref times start))
+                                      (end (position-if (lambda (x) (>= x (+ t0 window))) times :start start)))
+                                 (unless end (return))
+                                 (push (list* t0 (aref times (1- end))
+                                              (gait-metrics data :from start :to end :curvature curv
+                                                                 :centroids cents :headings heads))
+                                       out)
+                                 (setf start end)))
+                      (nreverse out)))))))
 
-(defun track-gait (track &key (window 10d0) (smooth 0.1d0) (min-speed 0.05d0) (max-gap 0.25d0))
+(defun track-gait (track &key (window 10d0) (smooth 0.1d0) (min-speed 0.05d0) (max-gap 0.25d0) (from 0d0))
   "Сводка походки трека по окнам движения вперёд (скорость не меньше
 MIN-SPEED длины тела в секунду, частота и длина волны определены): plist
 :windows (число окон) :forward (окон вперёд) и для :speed :frequency
 :wavelength :amplitude :wave-speed :slip — квартили (q1 медиана q3); плюс
 :curvature-profile — медианы по пятым частям тела и :length."
-  (let* ((all (track-windows track :window window :smooth smooth :max-gap max-gap))
+  (let* ((all (track-windows track :window window :smooth smooth :max-gap max-gap :from from))
          (len (track-length track))
          (forward (remove-if-not (lambda (w) (let ((m (cddr w)))
                                                (and (getf m :speed) (>= (getf m :speed) (* min-speed len))
@@ -195,3 +198,21 @@ MIN-SPEED длины тела в секунду, частота и длина в
                                      collect (median (loop for w in forward
                                                            collect (aref (getf (cddr w) :curvature-profile) i))))
                                'vector))))))
+
+(defun run-track (dir)
+  "Прогон модели из каталога DIR как трек: средняя линия — центры колец в
+плоскости x–y модели (как в kinematics.wcon), голова — первая точка. Так
+прогон меряется track-gait тем же путём, что трек живого червя или чужой
+модели."
+  (let* ((run (load-run dir))
+         (n (worm.io:frames-file-count (run-data-frames run)))
+         (rings (run-data-rings run))
+         (centers (make-dvec (* 3 rings)))
+         (xs (make-array n)) (ys (make-array n)))
+    (dotimes (k n)
+      (worm.topology:ring-centers (frame-dvec run k) rings (run-data-ring-nodes run) centers)
+      (let ((x (make-dvec rings)) (y (make-dvec rings)))
+        (dotimes (i rings) (setf (aref x i) (aref centers (* 3 i)) (aref y i) (aref centers (1+ (* 3 i)))))
+        (setf (aref xs k) x (aref ys k) y)))
+    (make-track :meta (run-data-meta run) :times (run-data-times run) :xs xs :ys ys :points rings
+                :length (median (loop for k below n collect (spine-length (aref xs k) (aref ys k)))))))

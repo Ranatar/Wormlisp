@@ -24,8 +24,10 @@
 ;;;;
 ;;;; Изменение :geometric и :linear — от и до за :steps значений, :list —
 ;;;; перечень. :params — какие параметры меняет изменение (по умолчанию —
-;;;; одноимённый); :multiply t — значение множит базовое. Файлы читаются с
-;;;; *read-eval* = nil.
+;;;; одноимённый); :multiply t — значение множит базовое; :interpolate
+;;;; ((параметр от до) …) — значение оси u ставит каждому параметру от + u·(до − от),
+;;;; так одна ось ведёт несколько параметров по своим концам (среда Бойла: C_t и
+;;;; C_n от воды к агару). Файлы читаются с *read-eval* = nil.
 
 (in-package #:worm.batch)
 
@@ -116,6 +118,9 @@
              (opts (options (if (eq kind :list) (rest args) (cddr args)))))
         (list :name (kw name) :values values :kind kind
               :multiply (getf opts :multiply)
+              :interpolate (mapcar (lambda (e) (destructuring-bind (param lo hi) e
+                                                 (list (kw param) (float lo 0d0) (float hi 0d0))))
+                                   (getf opts :interpolate))
               :params (mapcar #'kw (or (getf opts :params) (list name))))))))
 
 (defun grid (vary)
@@ -177,9 +182,13 @@
     (loop for (name value) in point
           for v = (find name (sweep-vary sweep) :key (lambda (x) (getf x :name)))
           unless (member name +numeric-keys+)
-          do (dolist (param (getf v :params))
-               (let ((new (if (getf v :multiply) (* value (base-value (sweep-base sweep) param)) value)))
-                 (setf set (cons (list param new nil) (remove param set :key #'first))))))
+          do (if (getf v :interpolate)
+                 ;; ось — доля пути между двумя концами для нескольких параметров
+                 (loop for (param lo hi) in (getf v :interpolate)
+                       do (setf set (cons (list param (+ lo (* value (- hi lo))) nil) (remove param set :key #'first))))
+                 (dolist (param (getf v :params))
+                   (let ((new (if (getf v :multiply) (* value (base-value (sweep-base sweep) param)) value)))
+                     (setf set (cons (list param new nil) (remove param set :key #'first)))))))
     (sort set #'string< :key (lambda (e) (symbol-name (first e))))))
 
 (defun model-identity (name)

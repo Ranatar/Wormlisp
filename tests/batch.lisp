@@ -32,6 +32,18 @@
                (mapcar (lambda (x) (/ (fround (* x 1000)) 1000))
                        (getf (first (worm.batch:sweep-vary sweep)) :values))))))
 
+(test sweep-axis-interpolates-several-parameters
+  ;; среда Бойла: ось medium ведёт C_t и C_n от воды к агару (этап 15)
+  (let* ((sweep (worm.batch:load-sweep (merge-pathnames "sweeps/boyle-base.sexp" (worm.core:project-root))))
+         (jobs (worm.batch:expand-sweep sweep)))
+    (is (= 5 (length jobs)))
+    (flet ((at (m key) (second (assoc key (getf (find m jobs :key (lambda (j) (second (assoc :medium (getf j :point)))))
+                                                 :set)))))
+      (is (worm.core:approx= 5.2d-3 (at 0d0 :c-n) :rel 1d-9))
+      (is (worm.core:approx= 128d0 (at 1d0 :c-n) :rel 1d-9))
+      (is (worm.core:approx= (+ 3.3d-3 (* 0.01d0 (- 3.2d0 3.3d-3))) (at 0.01d0 :c-t) :rel 1d-9))
+      (is (null (assoc :medium (getf (first jobs) :set))) "сама ось — не параметр"))))
+
 (test job-ids-depend-only-on-the-configuration
   (let* ((a (worm.batch:expand-sweep (worm.batch:load-sweep (batch-data "tiny-sweep.sexp"))))
          (b (worm.batch:expand-sweep (worm.batch:load-sweep (batch-data "slow-sweep.sexp")))))

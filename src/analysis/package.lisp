@@ -16,4 +16,4 @@
    #:run-gait #:write-run-metrics #:write-sweep-summary
    #:wcon-object #:write-wcon
    #:track #:read-track #:track-from-wcon #:track-times #:track-points #:track-length #:track-meta
-   #:track-segments #:spine-curvatures #:spine-series #:track-windows #:track-gait #:quartiles))
+   #:run-track #:track-segments #:spine-curvatures #:spine-series #:track-windows #:track-gait #:quartiles))
