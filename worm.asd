@@ -159,7 +159,8 @@
   :serial t
   :components ((:file "package")
                (:file "gait")
-               (:file "wcon")))
+               (:file "wcon")
+               (:file "track")))
 
 (defsystem "worm"
   :description "Симулятор локомоции C. elegans: фасадный пакет WORM для REPL."
@@ -215,6 +216,7 @@
                (:file "golden" :depends-on ("runtime" "physics"))
                (:file "io" :depends-on ("suite"))
                (:file "analysis" :depends-on ("io"))
+               (:file "track" :depends-on ("analysis" "wcon"))
                (:file "server" :depends-on ("runtime"))
                (:file "live" :depends-on ("server")))
   :perform (test-op (o c) (uiop:symbol-call :worm.tests :run-all)))
